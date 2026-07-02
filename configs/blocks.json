@@ -1,0 +1,29 @@
+{
+  "comment": "Data-driven block definitions. render: solid | cutout | cross | liquid | none. Textures reference tile names from the procedural atlas; faces: all / top / bottom / side.",
+  "blocks": [
+    { "id": 0,  "name": "air",           "label": "Air",           "render": "none",   "solid": false, "opaque": false, "breakable": false, "replaceable": true },
+    { "id": 1,  "name": "bedrock",       "label": "Bedrock",       "render": "solid",  "solid": true,  "opaque": true,  "breakable": false, "textures": { "all": "bedrock" } },
+    { "id": 2,  "name": "stone",         "label": "Stone",         "render": "solid",  "solid": true,  "opaque": true,  "textures": { "all": "stone" } },
+    { "id": 3,  "name": "dirt",          "label": "Dirt",          "render": "solid",  "solid": true,  "opaque": true,  "textures": { "all": "dirt" } },
+    { "id": 4,  "name": "grass_block",   "label": "Grass",         "render": "solid",  "solid": true,  "opaque": true,  "textures": { "top": "grass_top", "bottom": "dirt", "side": "grass_side" } },
+    { "id": 5,  "name": "sand",          "label": "Sand",          "render": "solid",  "solid": true,  "opaque": true,  "textures": { "all": "sand" } },
+    { "id": 6,  "name": "gravel",        "label": "Gravel",        "render": "solid",  "solid": true,  "opaque": true,  "textures": { "all": "gravel" } },
+    { "id": 7,  "name": "water",         "label": "Water",         "render": "liquid", "solid": false, "opaque": false, "breakable": false, "replaceable": true, "textures": { "all": "water" } },
+    { "id": 8,  "name": "lava",          "label": "Lava",          "render": "liquid", "solid": false, "opaque": false, "breakable": false, "replaceable": true, "emission": 14, "textures": { "all": "lava" } },
+    { "id": 9,  "name": "oak_log",       "label": "Oak Log",       "render": "solid",  "solid": true,  "opaque": true,  "textures": { "top": "log_top", "bottom": "log_top", "side": "log_side" } },
+    { "id": 10, "name": "oak_leaves",    "label": "Oak Leaves",    "render": "cutout", "solid": true,  "opaque": false, "textures": { "all": "leaves" } },
+    { "id": 11, "name": "oak_planks",    "label": "Oak Planks",    "render": "solid",  "solid": true,  "opaque": true,  "textures": { "all": "planks" } },
+    { "id": 12, "name": "cobblestone",   "label": "Cobblestone",   "render": "solid",  "solid": true,  "opaque": true,  "textures": { "all": "cobble" } },
+    { "id": 13, "name": "snowy_grass",   "label": "Snowy Grass",   "render": "solid",  "solid": true,  "opaque": true,  "textures": { "top": "snow", "bottom": "dirt", "side": "snow_side" } },
+    { "id": 14, "name": "snow_block",    "label": "Snow",          "render": "solid",  "solid": true,  "opaque": true,  "textures": { "all": "snow" } },
+    { "id": 15, "name": "sandstone",     "label": "Sandstone",     "render": "solid",  "solid": true,  "opaque": true,  "textures": { "all": "sandstone" } },
+    { "id": 16, "name": "coal_ore",      "label": "Coal Ore",      "render": "solid",  "solid": true,  "opaque": true,  "textures": { "all": "coal_ore" } },
+    { "id": 17, "name": "iron_ore",      "label": "Iron Ore",      "render": "solid",  "solid": true,  "opaque": true,  "textures": { "all": "iron_ore" } },
+    { "id": 18, "name": "gold_ore",      "label": "Gold Ore",      "render": "solid",  "solid": true,  "opaque": true,  "textures": { "all": "gold_ore" } },
+    { "id": 19, "name": "diamond_ore",   "label": "Diamond Ore",   "render": "solid",  "solid": true,  "opaque": true,  "textures": { "all": "diamond_ore" } },
+    { "id": 20, "name": "glass",         "label": "Glass",         "render": "cutout", "solid": true,  "opaque": false, "textures": { "all": "glass" } },
+    { "id": 21, "name": "tall_grass",    "label": "Tall Grass",    "render": "cross",  "solid": false, "opaque": false, "replaceable": true, "textures": { "all": "tall_grass" } },
+    { "id": 22, "name": "flower_red",    "label": "Poppy",         "render": "cross",  "solid": false, "opaque": false, "replaceable": true, "textures": { "all": "flower_red" } },
+    { "id": 23, "name": "flower_yellow", "label": "Dandelion",     "render": "cross",  "solid": false, "opaque": false, "replaceable": true, "textures": { "all": "flower_yellow" } }
+  ]
+}
