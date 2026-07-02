@@ -1,58 +1,58 @@
-# Roadmap — stan względem specyfikacji
+# Roadmap — status vs. the design specification
 
-Legenda: ✅ zrobione | 🟡 częściowo | ⬜ planowane
+Legend: ✅ done | 🟡 partial | ⬜ planned
 
-## Silnik
+## Engine
 
-| Obszar | Stan | Notatki |
+| Area | Status | Notes |
 |---|---|---|
-| Okno + kontekst GL 3.3 (GLFW/ModernGL) | ✅ | raw mouse motion, vsync, fullscreen |
-| Architektura warstwowa engine/game | ✅ | silnik nie zna gameplayu |
-| Bloki data-driven (JSON) | ✅ | `configs/blocks.json` → tablice NumPy |
-| Chunki + streaming async | ✅ | pula wątków, priorytet wg odległości i kierunku kamery, budżety per klatka |
-| Mesher (culling + AO + kompresja wierzchołków) | ✅ | zwektoryzowany NumPy, 8 B/wierzchołek |
-| Greedy meshing | ⬜ | konflikt z per-vertex AO — wymaga benchmarku (spec: najpierw mierz) |
-| Frustum culling | ✅ | zwektoryzowany test AABB vs 6 płaszczyzn |
+| Window + GL 3.3 context (GLFW/ModernGL) | ✅ | raw mouse motion, vsync, fullscreen |
+| Layered engine/game architecture | ✅ | the engine knows nothing about gameplay |
+| Data-driven blocks (JSON) | ✅ | `configs/blocks.json` → NumPy lookup tables |
+| Chunks + async streaming | ✅ | thread pool, priority by distance and camera direction, per-frame budgets |
+| Mesher (culling + AO + vertex compression) | ✅ | vectorised NumPy, 8 B/vertex |
+| Greedy meshing | ⬜ | conflicts with per-vertex AO — needs benchmarking first (spec: measure before optimising) |
+| Frustum culling | ✅ | vectorised AABB vs 6 planes |
 | Occlusion culling / LOD | ⬜ | |
-| Tekstury proceduralne (texture array + mipmapy) | ✅ | 25 kafelków, zero assetów |
-| Oświetlenie kierunkowe + AO + emisja (lawa) | ✅ | per-vertex; bez propagacji światła blokowego |
-| Światło blokowe (flood fill), kolorowe | ⬜ | kolejny duży krok |
-| Cykl dnia/nocy, niebo proceduralne, gwiazdy, mgła | ✅ | |
-| Zapis świata (tylko zmodyfikowane chunki, npz + meta) | ✅ | odporny na uszkodzone pliki (regeneracja) |
-| Profiler wbudowany | 🟡 | timingi w smoke_test + F3; brak per-stage profilera |
+| Procedural textures (texture array + mipmaps) | ✅ | 25 tiles, zero asset files |
+| Directional lighting + AO + emission (lava) | ✅ | per-vertex; no block-light propagation yet |
+| Block light (flood fill), coloured light | ⬜ | next big step |
+| Day/night cycle, procedural sky, stars, fog | ✅ | |
+| World persistence (modified chunks only, npz + meta) | ✅ | corrupt files fall back to regeneration |
+| Built-in profiler | 🟡 | timings in smoke_test + F3; no per-stage profiler |
 | Audio (OpenAL) | ⬜ | |
-| ECS | ⬜ | na razie jedyną encją jest gracz; ECS wejdzie z mobami |
-| Multiplayer (serwer autorytatywny) | ⬜ | architektura world/streaming już rozdziela dane od renderu |
-| Modding / skrypty | 🟡 | bloki/kafelki data-driven; brak ładowania paczek modów |
+| ECS | ⬜ | the player is the only entity so far; ECS arrives with mobs |
+| Multiplayer (authoritative server) | ⬜ | world/streaming already separates data from rendering |
+| Modding / scripting | 🟡 | blocks/tiles are data-driven; no mod-pack loading yet |
 
-## Świat
+## World
 
-| Obszar | Stan | Notatki |
+| Area | Status | Notes |
 |---|---|---|
-| Wysokości: kontynenty + wzgórza + góry ridged + domain warp | ✅ | |
-| Klimat: temperatura/wilgotność → biomy emergentne | ✅ | ocean, plaża, pustynia, śnieg, góry, las, równiny |
-| Jaskinie spaghetti + caverny + lawa | ✅ | nie przebijają powierzchni (brak symulacji cieczy) |
-| Rudy (węgiel/żelazo/złoto/diament wg głębokości) | ✅ | |
-| Drzewa bezszwowe przez granice chunków | ✅ | stateless hash świata |
-| Rośliny (trawa, kwiaty) | ✅ | |
-| Rzeki, jeziora, wioski, struktury | ⬜ | pipeline przebiegów jest na to gotowy |
-| Symulacja cieczy (rozlewanie) | ⬜ | woda statyczna na poziomie morza |
-| Pogoda (deszcz/śnieg/burza) | ⬜ | |
+| Heightmap: continents + hills + ridged mountains + domain warp | ✅ | |
+| Climate: temperature/humidity → emergent biomes | ✅ | ocean, beach, desert, snowy, mountains, forest, plains |
+| Spaghetti caves + caverns + lava | ✅ | never breach the surface (no fluid simulation yet) |
+| Ores (coal/iron/gold/diamond by depth) | ✅ | |
+| Trees seamless across chunk borders | ✅ | stateless world-coordinate hash |
+| Plants (tall grass, flowers) | ✅ | |
+| Rivers, lakes, villages, structures | ⬜ | the multi-pass pipeline is ready for them |
+| Fluid simulation (flowing water) | ⬜ | water is static at sea level |
+| Weather (rain/snow/storms) | ⬜ | |
 
 ## Gameplay
 
-| Obszar | Stan | Notatki |
+| Area | Status | Notes |
 |---|---|---|
-| Ruch: chodzenie, sprint, skok, pływanie, latanie | ✅ | kolizje AABB per oś |
-| Kopanie/stawianie/pobieranie bloku, podświetlenie celu | ✅ | raycast DDA, ochrona przed stawianiem w sobie |
-| Hotbar + HUD + F3 + pauza | ✅ | |
-| Ekwipunek, crafting, przetrwanie (HP/głód), moby | ⬜ | kolejne etapy |
+| Movement: walking, sprint, jump, swimming, flying | ✅ | per-axis AABB collisions |
+| Break/place/pick block, target highlight | ✅ | DDA raycast, no placing inside the player |
+| Hotbar + HUD + F3 + pause | ✅ | |
+| Inventory, crafting, survival (HP/hunger), mobs | ⬜ | next milestones |
 
-## Znane kompromisy wydajnościowe (do zmierzenia przed optymalizacją)
+## Known performance trade-offs (measure before optimising)
 
-- Generacja ~60 ms/chunk — dominują szumy 3D jaskiń/rud (8× perlin3);
-  kandydaci: pół-rozdzielczość + interpolacja, Numba, mniejsza liczba pól.
-- Zapis zmodyfikowanego chunka przy unload odbywa się na głównym wątku
-  (kilka ms) — przenieść do puli wątków.
-- ~450 draw calli przy render distance 10 — wystarcza (60 FPS na RTX 3050);
-  przy większych dystansach rozważyć merged/indirect drawing.
+- Generation ~60 ms/chunk — dominated by 3D cave/ore noise (8× perlin3);
+  candidates: half-resolution + interpolation, Numba, fewer noise fields.
+- Saving a modified chunk on unload happens on the main thread (a few ms) —
+  move it to the worker pool.
+- ~450 draw calls at render distance 10 — fine (60 FPS on an RTX 3050);
+  for larger distances consider merged/indirect drawing.

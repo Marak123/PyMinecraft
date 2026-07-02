@@ -146,8 +146,8 @@ class Hud:
 
     def _draw_pause(self, width: int, height: int) -> None:
         self.renderer.draw_ui_rects(_rect(0, 0, width, height, (0.0, 0.0, 0.0, 0.55)))
-        title = "PAUZA"
-        hint = "ESC lub klik - powrot do gry"
+        title = "PAUSED"
+        hint = "Press ESC or click to resume"
         tw = len(title) * self.font.cell_w * 2
         hw = len(hint) * self.font.cell_w
         self._text(width / 2 - tw / 2, height / 2 - 40, title, scale=2.0)
