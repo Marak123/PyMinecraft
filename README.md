@@ -6,10 +6,11 @@
 
 A voxel sandbox game with a custom Python engine built on
 **ModernGL + GLFW + NumPy**. Infinite procedural worlds with biomes, caves,
-ores and trees, flood-fill lighting with real voxel shadows and warm torch
-light, survival mode with health and fall damage, a day/night cycle with
-clouds and stars, water, mining and building. Zero external assets — every
-texture is generated procedurally at startup.
+ores, trees and scattered ruins, flood-fill lighting with real voxel shadows
+and warm torch light, survival mode with health, inventory and crafting,
+wandering mobs, rain spells, a third-person view, a day/night cycle with
+clouds and stars. Zero external assets — every texture is generated
+procedurally at startup (32x32).
 
 ## Quick start
 
@@ -32,17 +33,23 @@ Requirements: Python 3.12+ and a GPU with OpenGL 3.3 (practically any).
 | `Left Shift` | sneak — you cannot fall off edges / (while flying) descend |
 | `F` | toggle flying (creative mode only) |
 | `F4` | switch survival / creative mode |
-| `LMB` | break block (hold to dig — blocks have hardness in survival) |
-| `RMB` | place block |
-| `MMB` | pick targeted block into the hotbar |
+| `LMB` | break block (hold to dig in survival) / attack mobs |
+| `RMB` | place block (consumes from inventory in survival) |
+| `MMB` | pick targeted block |
 | `1–9` / mouse wheel | select hotbar slot |
+| `E` | inventory & crafting (survival) / block picker (creative) |
+| `F5` | first / third person view |
+| `F11` | fullscreen toggle |
 | `F3` | debug overlay (FPS, chunk stats, stage timings) |
 | `F2` | screenshot to `screenshots/` |
-| `ESC` | pause / release mouse |
+| `ESC` | pause + settings menu (render distance, FOV, vsync...) |
 
-Survival mode: 10 hearts, fall damage, drowning (air bubbles), lava damage,
-slow regeneration, death & respawn. Creative mode: flying, instant breaking,
-no damage. Torches and glowstone push warm light into the night and caves.
+Survival mode: 10 hearts, fall damage, drowning, lava damage, regeneration,
+death & respawn; mined blocks drop into a 36-slot inventory and placing
+consumes them; shapeless recipes (`configs/recipes.json`) craft planks,
+torches, glass, bricks and more. Creative mode: flying, instant breaking,
+no damage, full block picker. Pigs wander the plains; ruined towers with
+torches dot the world; rain rolls through now and then.
 
 The world saves automatically on exit (modified chunks only) to
 `saves/world/`. Settings (resolution, render distance, FOV, mouse

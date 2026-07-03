@@ -14,6 +14,7 @@ import numpy as np
 from engine.graphics.font import FontAtlas, layout_text
 from engine.graphics.renderer import Renderer
 from engine.world.blocks import BlockRegistry
+from game.inventory import HOTBAR_SLOTS, Inventory
 
 _SLOT = 46
 _ICON = 32
@@ -75,12 +76,12 @@ class Hud:
         renderer: Renderer,
         registry: BlockRegistry,
         font_atlas: FontAtlas,
-        hotbar_ids: list[int],
+        inventory: Inventory,
     ) -> None:
         self.renderer = renderer
         self.registry = registry
         self.font = font_atlas
-        self.hotbar_ids = hotbar_ids
+        self.inventory = inventory
 
     # -- text helper with drop shadow --------------------------------------------
     def _text(self, x: float, y: float, text: str, scale: float = 1.0,
@@ -142,26 +143,34 @@ class Hud:
         self.renderer.draw_ui_rects(rects)
 
     def _hotbar_origin(self, width: int, height: int) -> tuple[float, float]:
-        n = len(self.hotbar_ids)
-        return width / 2 - (n * _SLOT) / 2, height - _SLOT - 8
+        return width / 2 - (HOTBAR_SLOTS * _SLOT) / 2, height - _SLOT - 8
 
     def _draw_hotbar(self, width: int, height: int, state: HudState) -> None:
         x0, y0 = self._hotbar_origin(width, height)
 
         rects = []
         icons = []
-        for i, block_id in enumerate(self.hotbar_ids):
+        counts = []
+        for i in range(HOTBAR_SLOTS):
             x = x0 + i * _SLOT
             if i == state.selected_slot:
                 rects.append(_rect(x - 3, y0 - 3, _SLOT + 6, _SLOT + 6, (1, 1, 1, 0.85)))
             rects.append(_rect(x, y0, _SLOT - 2, _SLOT - 2, (0.08, 0.08, 0.08, 0.62)))
-            # Icon uses the block's +Z side texture (face index 4).
-            layer = int(self.registry.face_layers[block_id, 4])
-            pad = (_SLOT - 2 - _ICON) / 2
-            icons.append(_icon_quad(x + pad, y0 + pad, _ICON, layer))
+            entry = self.inventory.slot(i)
+            if entry:
+                # Icon uses the block's +Z side texture (face index 4).
+                layer = int(self.registry.face_layers[entry[0], 4])
+                pad = (_SLOT - 2 - _ICON) / 2
+                icons.append(_icon_quad(x + pad, y0 + pad, _ICON, layer))
+                if entry[1] > 1 and state.mode == "survival":
+                    counts.append((x, y0, str(entry[1])))
 
         self.renderer.draw_ui_rects(np.concatenate(rects))
-        self.renderer.draw_ui_blocks(np.concatenate(icons))
+        if icons:
+            self.renderer.draw_ui_blocks(np.concatenate(icons))
+        for x, y, s in counts:
+            self._text(x + _SLOT - 10 - len(s) * self.font.cell_w * 0.8,
+                       y + _SLOT - 22, s, scale=0.8)
 
         label = state.hand_label or (
             "CREATIVE (F4)" if state.mode == "creative" and state.flying else ""
@@ -187,8 +196,7 @@ class Hud:
         if state.air < state.max_air - 1e-3:
             bubble_layer = self.renderer.tile_layer("bubble")
             bubbles = int(np.ceil(state.air))
-            n = len(self.hotbar_ids)
-            bx1 = x0 + n * _SLOT - _HEART
+            bx1 = x0 + HOTBAR_SLOTS * _SLOT - _HEART
             for i in range(bubbles):
                 icons.append(
                     _icon_quad(bx1 - i * (_HEART + 2), hearts_y, _HEART, bubble_layer)
@@ -216,12 +224,8 @@ class Hud:
             self._text(8, 8 + i * (self.font.cell_h + 2), line)
 
     def _draw_pause(self, width: int, height: int) -> None:
+        # Dim only — the interactive settings panel is drawn on top by the game.
         self.renderer.draw_ui_rects(_rect(0, 0, width, height, (0.0, 0.0, 0.0, 0.55)))
-        self._text_centered(width / 2, height / 2 - 40, "PAUSED", scale=2.0)
-        self._text_centered(
-            width / 2, height / 2 + 8, "Press ESC or click to resume",
-            color=(0.9, 0.9, 0.9, 1.0),
-        )
 
     def _draw_death(self, width: int, height: int) -> None:
         self.renderer.draw_ui_rects(_rect(0, 0, width, height, (0.35, 0.0, 0.0, 0.5)))

@@ -277,6 +277,39 @@ void main() {
 }
 """
 
+RAIN_VERT = """#version 330
+uniform mat4 u_view_proj;
+uniform vec3 u_center;
+uniform float u_time;
+
+in vec3 in_drop;    // x, z offset in the rain cylinder + phase
+in vec3 in_corner;  // corner dx, dy, quad axis (0 = X-facing, 1 = Z-facing)
+
+out float v_alpha;
+
+void main() {
+    float fall = fract(in_drop.z - u_time * 0.6);
+    vec3 world = u_center + vec3(in_drop.x, fall * 22.0, in_drop.y);
+    if (in_corner.z < 0.5) {
+        world.x += in_corner.x * 0.05;
+    } else {
+        world.z += in_corner.x * 0.05;
+    }
+    world.y += in_corner.y * 0.8;  // streak length
+    v_alpha = 0.30 * (1.0 - fall * 0.55);
+    gl_Position = u_view_proj * vec4(world, 1.0);
+}
+"""
+
+RAIN_FRAG = """#version 330
+in float v_alpha;
+out vec4 f_color;
+
+void main() {
+    f_color = vec4(0.62, 0.70, 0.86, v_alpha);
+}
+"""
+
 LINES_VERT = """#version 330
 uniform mat4 u_view_proj;
 uniform vec3 u_offset;

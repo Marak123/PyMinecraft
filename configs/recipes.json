@@ -1,0 +1,16 @@
+{
+  "comment": "Shapeless, block-based crafting recipes. ingredients: {block_name: count}.",
+  "recipes": [
+    { "output": "oak_planks",        "count": 4, "ingredients": { "oak_log": 1 } },
+    { "output": "crafting_table",    "count": 1, "ingredients": { "oak_planks": 4 } },
+    { "output": "torch",             "count": 6, "ingredients": { "coal_ore": 1, "oak_planks": 1 } },
+    { "output": "stone",             "count": 1, "ingredients": { "cobblestone": 1 } },
+    { "output": "stone_bricks",      "count": 4, "ingredients": { "stone": 4 } },
+    { "output": "bricks",            "count": 4, "ingredients": { "cobblestone": 2, "sand": 2 } },
+    { "output": "glass",             "count": 4, "ingredients": { "sand": 4 } },
+    { "output": "mossy_cobblestone", "count": 1, "ingredients": { "cobblestone": 1, "dirt": 1 } },
+    { "output": "bookshelf",         "count": 1, "ingredients": { "oak_planks": 6 } },
+    { "output": "glowstone",         "count": 1, "ingredients": { "torch": 4, "glass": 1 } },
+    { "output": "snow_block",        "count": 1, "ingredients": { "dirt": 1, "glass": 1 } }
+  ]
+}

@@ -94,6 +94,9 @@ class WorldGenerator:
         self._dead_bush = ids("dead_bush")
         self._mushroom_red = ids("mushroom_red")
         self._mushroom_brown = ids("mushroom_brown")
+        self._cobble = ids("cobblestone")
+        self._mossy = ids("mossy_cobblestone")
+        self._torch = ids("torch")
         self._ores = (
             (ids("coal_ore"), 0.60, 16, 100, 0.110),
             (ids("iron_ore"), 0.615, 6, 70, 0.115),
@@ -204,6 +207,7 @@ class WorldGenerator:
         self._place_ores(blocks, cx, cz)
         self._fill_water(blocks, h)
         self._plant_trees(blocks, cx, cz, h_e, biome_e)
+        self._place_ruins(blocks, cx, cz, h_e, biome_e)
         self._scatter_plants(blocks, cx, cz, h, biome)
         blocks[:, :, 0] = self._bedrock
         return blocks
@@ -371,6 +375,59 @@ class WorldGenerator:
                     continue
                 put(bx + dx, bz + dz, ground + trunk_h + 1, leaves_id, only_air=True)
         put(bx, bz, ground + trunk_h + 1, leaves_id, only_air=True)
+
+    def _place_ruins(
+        self,
+        blocks: np.ndarray,
+        cx: int,
+        cz: int,
+        h_e: np.ndarray,
+        biome_e: np.ndarray,
+    ) -> None:
+        """Rare ruined towers: crumbled cobblestone rings with a torch inside.
+
+        Stateless like trees: any chunk rebuilds the same ruin from the world
+        coordinates alone, so structures cross chunk borders seamlessly.
+        """
+        wx0 = cx * CHUNK_X - _PAD
+        wz0 = cz * CHUNK_Z - _PAD
+        gx = np.arange(_EXT)[:, None] + wx0
+        gz = np.arange(_EXT)[None, :] + wz0
+        roll = hash01(self.seed, gx, gz, salt=31)
+        ok_biome = np.isin(biome_e, (PLAINS, FOREST, DESERT))
+        candidates = (roll < 0.0011) & ok_biome & (h_e > SEA_LEVEL + 1) & (h_e < 84)
+
+        for tx, tz in np.argwhere(candidates):
+            base_x = int(tx) - _PAD
+            base_z = int(tz) - _PAD
+            ground = int(h_e[tx, tz])
+            rng = np.random.default_rng(
+                ((int(gx[tx, 0]) * 73856093) ^ (int(gz[0, tz]) * 19349663) ^ self.seed)
+                & 0x7FFFFFFF
+            )
+            height = int(rng.integers(3, 5))
+
+            def put(px: int, pz: int, py: int, block_id: int) -> None:
+                if 0 <= px < CHUNK_X and 0 <= pz < CHUNK_Z and 0 < py < CHUNK_Y - 1:
+                    blocks[px, pz, py] = block_id
+
+            for dx in range(-2, 3):
+                for dz in range(-2, 3):
+                    stone = self._mossy if rng.random() < 0.35 else self._cobble
+                    put(base_x + dx, base_z + dz, ground, stone)  # floor
+                    on_ring = abs(dx) == 2 or abs(dz) == 2
+                    if not on_ring:
+                        # Clear the interior of grass/trees debris.
+                        for dy in range(1, height + 1):
+                            put(base_x + dx, base_z + dz, ground + dy, AIR)
+                        continue
+                    wall_h = int(rng.integers(1, height + 1))
+                    if rng.random() < 0.2:
+                        wall_h = 0  # crumbled gap
+                    for dy in range(1, wall_h + 1):
+                        stone = self._mossy if rng.random() < 0.35 else self._cobble
+                        put(base_x + dx, base_z + dz, ground + dy, stone)
+            put(base_x, base_z, ground + 1, self._torch)
 
     def _scatter_plants(
         self,

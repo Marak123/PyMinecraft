@@ -31,10 +31,15 @@ from engine.world.world import World
 
 _log = get_logger("streaming")
 
-# Per-frame integration budgets: keep the main thread hitch-free.
+# Per-frame budgets: keep the main thread hitch-free.  Submissions are
+# capped too because building job snapshots (light windows, mesh halos)
+# copies arrays on the main thread.
 MAX_GEN_INTEGRATIONS_PER_FRAME = 12
-MAX_LIGHT_INTEGRATIONS_PER_FRAME = 12
+MAX_LIGHT_INTEGRATIONS_PER_FRAME = 10
 MAX_MESH_UPLOADS_PER_FRAME = 8
+MAX_GEN_SUBMITS_PER_FRAME = 8
+MAX_LIGHT_SUBMITS_PER_FRAME = 4
+MAX_MESH_SUBMITS_PER_FRAME = 5
 
 MeshFn = Callable[[tuple[np.ndarray, np.ndarray, np.ndarray]], Any]
 UploadFn = Callable[[int, int, Any], None]
@@ -66,10 +71,7 @@ class ChunkStreamer:
         self.mesh_fn = mesh_fn
         self.upload_fn = upload_fn
         self.unload_fn = unload_fn
-        self.render_radius = render_radius
-        self.light_radius = render_radius + 1
-        self.gen_radius = render_radius + 2
-        self.unload_radius = render_radius + 4
+        self.set_render_radius(render_radius)
 
         workers = max(2, (os.cpu_count() or 4) - 2)
         self._pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="chunk")
@@ -77,10 +79,17 @@ class ChunkStreamer:
         self._gen_jobs: dict[tuple[int, int], Future] = {}
         self._light_jobs: dict[tuple[int, int], Future] = {}
         self._mesh_jobs: dict[tuple[int, int], Future] = {}
+        _log.info("Chunk streamer using %d worker threads", workers)
+
+    def set_render_radius(self, render_radius: int) -> None:
+        """Live render-distance change (settings menu)."""
+        self.render_radius = render_radius
+        self.light_radius = render_radius + 1
+        self.gen_radius = render_radius + 2
+        self.unload_radius = render_radius + 4
         self._gen_offsets = _ring_offsets(self.gen_radius)
         self._light_offsets = _ring_offsets(self.light_radius)
         self._render_offsets = _ring_offsets(self.render_radius)
-        _log.info("Chunk streamer using %d worker threads", workers)
 
     # -- public -------------------------------------------------------------
     def update(self, center: tuple[int, int], forward_xz: tuple[float, float]) -> None:
@@ -120,7 +129,7 @@ class ChunkStreamer:
     def _request_generation(
         self, center: tuple[int, int], forward_xz: tuple[float, float]
     ) -> None:
-        budget = self._max_inflight - len(self._gen_jobs)
+        budget = min(self._max_inflight - len(self._gen_jobs), MAX_GEN_SUBMITS_PER_FRAME)
         if budget <= 0:
             return
         cx, cz = center
@@ -161,7 +170,7 @@ class ChunkStreamer:
         )
 
     def _request_lighting(self, center: tuple[int, int]) -> None:
-        budget = self._max_inflight - len(self._light_jobs)
+        budget = min(self._max_inflight - len(self._light_jobs), MAX_LIGHT_SUBMITS_PER_FRAME)
         if budget <= 0:
             return
         cx, cz = center
@@ -210,7 +219,7 @@ class ChunkStreamer:
 
     # -- meshing ------------------------------------------------------------
     def _request_meshes(self, center: tuple[int, int]) -> None:
-        budget = self._max_inflight - len(self._mesh_jobs)
+        budget = min(self._max_inflight - len(self._mesh_jobs), MAX_MESH_SUBMITS_PER_FRAME)
         if budget <= 0:
             return
         cx, cz = center

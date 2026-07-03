@@ -56,6 +56,7 @@ class Window:
         self.input = InputState()
         self.focused = True
         self._cursor_captured = False
+        self._vsync = vsync
 
         glfw.set_key_callback(self.handle, self._on_key)
         glfw.set_mouse_button_callback(self.handle, self._on_button)
@@ -105,6 +106,27 @@ class Window:
 
     def request_close(self) -> None:
         glfw.set_window_should_close(self.handle, True)
+
+    def set_fullscreen(self, fullscreen: bool) -> None:
+        """Runtime fullscreen toggle; windowed mode restores 1280x720 centred."""
+        monitor = glfw.get_primary_monitor()
+        mode = glfw.get_video_mode(monitor)
+        if fullscreen:
+            glfw.set_window_monitor(
+                self.handle, monitor, 0, 0, mode.size.width, mode.size.height,
+                mode.refresh_rate,
+            )
+        else:
+            w, h = 1280, 720
+            x = (mode.size.width - w) // 2
+            y = (mode.size.height - h) // 2
+            glfw.set_window_monitor(self.handle, None, x, y, w, h, 0)
+        # set_window_monitor resets the swap interval on some drivers.
+        glfw.swap_interval(1 if self._vsync else 0)
+
+    def set_vsync(self, vsync: bool) -> None:
+        self._vsync = vsync
+        glfw.swap_interval(1 if vsync else 0)
 
     def capture_cursor(self, captured: bool) -> None:
         if captured == self._cursor_captured:

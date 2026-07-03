@@ -53,6 +53,7 @@ class BlockDef:
     hardness: float = 1.0  # seconds to break in survival mode
     light_attenuation: int = 0  # extra light decay per block entered
     needs_support: bool = False  # must stand on a solid block (plants, torch)
+    drops: str | None = None  # block dropped when mined; None = itself, "none" = nothing
     textures: dict[str, str] = field(default_factory=dict)
 
     def face_tile(self, face: int) -> str | None:
@@ -83,6 +84,8 @@ class BlockRegistry:
         # Texture layer per (block, face); filled by assign_texture_layers().
         self.face_layers = np.zeros((n, 6), dtype=np.uint16)
 
+        # What a block yields when mined (0 = nothing, AIR never drops).
+        self.drops = np.zeros(n, dtype=np.uint8)
         for d in defs:
             self.opaque[d.id] = d.opaque
             self.solid[d.id] = d.solid
@@ -92,6 +95,13 @@ class BlockRegistry:
             self.hardness[d.id] = d.hardness
             self.light_attenuation[d.id] = d.light_attenuation
             self.needs_support[d.id] = d.needs_support
+        for d in defs:
+            if d.drops == "none":
+                self.drops[d.id] = 0
+            elif d.drops is None:
+                self.drops[d.id] = d.id
+            else:
+                self.drops[d.id] = self.by_name[d.drops].id
 
     @classmethod
     def load(cls, path: Path) -> "BlockRegistry":
@@ -112,6 +122,7 @@ class BlockRegistry:
                     hardness=float(entry.get("hardness", 1.0)),
                     light_attenuation=int(entry.get("light_attenuation", 0)),
                     needs_support=bool(entry.get("needs_support", False)),
+                    drops=entry.get("drops"),
                     textures=dict(entry.get("textures", {})),
                 )
             )

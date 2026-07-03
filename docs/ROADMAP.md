@@ -20,6 +20,9 @@ Legend: ✅ done | 🟡 partial | ⬜ planned
 | Coloured light | ⬜ | per-channel flood fill — 3× memory/compute |
 | Shadow maps / SSAO / bloom | ⬜ | voxel lighting covers the look until then |
 | Day/night cycle, sky, moon, stars, clouds, fog | ✅ | drifting cloud layer, underwater/lava fog |
+| Weather: rain spells | ✅ | overcast light + rain streaks; snow/storms ⬜ |
+| Entity box renderer (mobs, player model) | ✅ | tinted box parts, light-sampled |
+| In-game settings menu + runtime fullscreen | ✅ | render distance/FOV/vsync applied live |
 | World persistence (modified chunks only, npz + meta) | ✅ | async chunk saves on the worker pool |
 | Profiler | 🟡 | per-stage frame timings in F3; no flame-graph style tooling |
 | Audio (OpenAL) | ⬜ | |
@@ -38,7 +41,8 @@ Legend: ✅ done | 🟡 partial | ⬜ planned
 | Glowstone pockets on cavern ceilings | ✅ | natural light landmarks underground |
 | Trees: oak + birch, seamless across chunk borders | ✅ | stateless world-coordinate hash |
 | Plants: tall grass, flowers, mushrooms, dead bushes | ✅ | biome-dependent |
-| Rivers, lakes, villages, structures | ⬜ | the multi-pass pipeline is ready for them |
+| Structures: ruined torch-lit towers | ✅ | stateless, cross-border; villages/dungeons ⬜ |
+| Rivers, lakes | ⬜ | the multi-pass pipeline is ready for them |
 | Fluid simulation (flowing water) | ⬜ | water is static at sea level |
 | Weather (rain/snow/storms) | ⬜ | |
 
@@ -52,8 +56,12 @@ Legend: ✅ done | 🟡 partial | ⬜ planned
 | Survival digging (per-block hardness, progress bar) | ✅ | instant in creative |
 | Game modes: survival / creative (F4) | ✅ | flying is creative-only |
 | Break/place/pick block, target highlight, support rules | ✅ | torches/plants need solid ground, pop when it breaks |
-| Hotbar + HUD + F3 + pause | ✅ | |
-| Inventory, crafting, hunger, mobs | ⬜ | next milestones (mobs bring ECS) |
+| Hotbar + HUD + F3 + pause/settings | ✅ | |
+| Inventory (36 slots, drops, stack swap) + crafting | ✅ | shapeless data-driven recipes; shaped/machines ⬜ |
+| Creative block picker (E) | ✅ | |
+| Mobs: wandering pigs (attackable, knockback) | ✅ | pre-ECS; hostile mobs/AI goals/drops ⬜ |
+| Third-person view + player model (F5) | ✅ | camera collides with terrain |
+| Hunger, tools, combat depth | ⬜ | |
 
 ## Performance notes (measured on RTX 3050 laptop, Python 3.12)
 

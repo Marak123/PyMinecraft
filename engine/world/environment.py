@@ -6,6 +6,7 @@ Produces plain uniform values; the renderer stays a dumb consumer.
 from __future__ import annotations
 
 import math
+import random
 
 import numpy as np
 
@@ -31,9 +32,26 @@ class Environment:
         self.zenith_color = _DAY_ZENITH.copy()
         self.horizon_color = _DAY_HORIZON.copy()
         self.fog_color = _DAY_HORIZON.copy()
+        # Weather: rain comes and goes in random spells.
+        self.raining = False
+        self._weather_timer = random.uniform(180.0, 420.0)
         self.update(0.0)
 
+    def _update_weather(self, dt: float) -> None:
+        self._weather_timer -= dt
+        if self._weather_timer > 0.0:
+            return
+        if self.raining:
+            self.raining = False
+            self._weather_timer = random.uniform(300.0, 700.0)
+        elif random.random() < 0.45:
+            self.raining = True
+            self._weather_timer = random.uniform(80.0, 200.0)
+        else:
+            self._weather_timer = random.uniform(120.0, 300.0)
+
     def update(self, dt: float) -> None:
+        self._update_weather(dt)
         self.time_of_day = (self.time_of_day + dt / self.day_length) % 1.0
         angle = (self.time_of_day - 0.25) * 2.0 * math.pi  # 0.25 -> sunrise at horizon
         elevation = math.sin(angle)
@@ -48,6 +66,8 @@ class Environment:
 
         # Daylight ramps smoothly through twilight instead of snapping.
         self.daylight = float(np.clip((elevation + 0.12) / 0.35, 0.0, 1.0))
+        if self.raining:
+            self.daylight *= 0.55  # overcast skies
 
         day_t = self.daylight
         self.zenith_color = _lerp(_NIGHT_ZENITH, _DAY_ZENITH, day_t)

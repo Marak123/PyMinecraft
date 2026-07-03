@@ -35,7 +35,7 @@ class Settings:
     fullscreen: bool = False
     vsync: bool = True
     fov: float = 75.0
-    render_distance: int = 10  # in chunks
+    render_distance: int = 8  # in chunks
     mouse_sensitivity: float = 0.09  # degrees per pixel
     day_length_seconds: float = 900.0
     seed: int | None = None  # None -> random on world creation

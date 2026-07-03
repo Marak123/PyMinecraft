@@ -93,6 +93,28 @@ def _unit_cube_edges() -> np.ndarray:
     return (verts - 0.5) * 1.004 + 0.5
 
 
+def _rain_mesh(drops: int = 340) -> np.ndarray:
+    """Static rain streaks: two crossed quads per drop, animated in-shader."""
+    rng = np.random.default_rng(11)
+    angle = rng.random(drops) * 2 * np.pi
+    radius = np.sqrt(rng.random(drops)) * 15.0
+    x = np.cos(angle) * radius
+    z = np.sin(angle) * radius
+    phase = rng.random(drops)
+    corners = [(-0.5, 0.0), (0.5, 0.0), (0.5, 1.0), (-0.5, 0.0), (0.5, 1.0), (-0.5, 1.0)]
+    verts = np.empty((drops, 12, 6), dtype=np.float32)
+    for axis in (0, 1):
+        for c, (cx, cy) in enumerate(corners):
+            i = axis * 6 + c
+            verts[:, i, 0] = x
+            verts[:, i, 1] = z
+            verts[:, i, 2] = phase
+            verts[:, i, 3] = cx
+            verts[:, i, 4] = cy
+            verts[:, i, 5] = axis
+    return verts.reshape(-1, 6)
+
+
 def _cloud_mesh() -> np.ndarray:
     """Static quad field for one cloud tile (periodic, world-anchored)."""
     rng = np.random.default_rng(7)
@@ -169,6 +191,13 @@ class Renderer:
         self._cloud_vbo = ctx.buffer(cloud_verts.tobytes())
         self._cloud_vao = ctx.vertex_array(
             self.prog_clouds, [(self._cloud_vbo, "2f4", "in_pos")]
+        )
+        self.prog_rain = ctx.program(shaders.RAIN_VERT, shaders.RAIN_FRAG)
+        rain_verts = _rain_mesh()
+        self._rain_count = len(rain_verts)
+        self._rain_vbo = ctx.buffer(rain_verts.tobytes())
+        self._rain_vao = ctx.vertex_array(
+            self.prog_rain, [(self._rain_vbo, "3f4 3f4", "in_drop", "in_corner")]
         )
 
         # Dynamic UI buffers, grown on demand.
@@ -406,6 +435,30 @@ class Renderer:
             ctx.fbo.depth_mask = True
         except AttributeError:
             pass
+
+    def render_rain(self, camera, time_s: float) -> None:
+        """Rain streak cylinder around the camera; call while it is raining."""
+        ctx = self.ctx
+        ctx.enable(moderngl.DEPTH_TEST | moderngl.BLEND)
+        ctx.disable(moderngl.CULL_FACE)
+        try:
+            ctx.fbo.depth_mask = False
+        except AttributeError:
+            pass
+        prog = self.prog_rain
+        self._set_mat(prog, "u_view_proj", camera.view_proj())
+        self._set(prog, "u_time", time_s)
+        self._set(prog, "u_center", (
+            float(camera.position[0]),
+            float(camera.position[1]) - 11.0,
+            float(camera.position[2]),
+        ))
+        self._rain_vao.render(moderngl.TRIANGLES, vertices=self._rain_count)
+        try:
+            ctx.fbo.depth_mask = True
+        except AttributeError:
+            pass
+        ctx.disable(moderngl.BLEND)
 
     # -- UI -----------------------------------------------------------------------
     def begin_ui(self, width: int, height: int) -> None:

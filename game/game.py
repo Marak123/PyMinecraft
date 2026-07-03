@@ -15,7 +15,7 @@ import glfw
 import numpy as np
 
 from engine.camera import Camera
-from engine.core.config import load_settings
+from engine.core.config import load_settings, save_settings
 from engine.core.log import get_logger, init_logging
 from engine.core.timing import FrameClock
 from engine.graphics.font import build_font_atlas
@@ -38,8 +38,12 @@ from engine.world.generation import WorldGenerator, surface_height
 from engine.world.save import WorldStorage
 from engine.world.streaming import ChunkStreamer
 from engine.world.world import World
+from engine.graphics.boxrender import BoxRenderer
+from game.entities import MobManager, PlayerModel
 from game.hud import Hud, HudState
+from game.inventory import HOTBAR_SLOTS, CraftingBook, Inventory
 from game.player import CREATIVE, SURVIVAL, Player
+from game.ui import InventoryScreen, Mouse, SettingsScreen
 
 _log = get_logger("game")
 
@@ -108,9 +112,24 @@ class Game:
             self.player.flying = bool(meta.get("flying", False)) and self.player.mode == CREATIVE
         self.camera.position = self.player.eye_position
 
-        self.hotbar_ids = self._resolve_hotbar()
-        self.selected_slot = int(meta.get("selected_slot", 0)) % len(self.hotbar_ids)
-        self.hud = Hud(self.renderer, self.registry, font_atlas, self.hotbar_ids)
+        self.inventory = Inventory()
+        if "inventory" in meta:
+            self.inventory.load_meta(meta["inventory"])
+        elif self.player.mode == CREATIVE:
+            self._fill_default_hotbar()
+        self.crafting = CraftingBook.load(self.root / "configs" / "recipes.json", self.registry)
+        self.selected_slot = int(meta.get("selected_slot", 0)) % HOTBAR_SLOTS
+        self.hud = Hud(self.renderer, self.registry, font_atlas, self.inventory)
+        self.inv_screen = InventoryScreen(
+            self.renderer, font_atlas, self.registry, self.inventory, self.crafting
+        )
+        self.settings_screen = SettingsScreen(self.renderer, font_atlas)
+        self.screen: str | None = None  # None | "inventory"
+
+        self.boxes = BoxRenderer(self.window.ctx)
+        self.mobs = MobManager(self.world, self.registry)
+        self.player_model = PlayerModel()
+        self.third_person = bool(meta.get("third_person", False))
 
         self.clock = FrameClock()
         self.paused = False
@@ -142,14 +161,11 @@ class Game:
         )
         return np.array([sx + 0.5, ground + 1.05, sz + 0.5])
 
-    def _resolve_hotbar(self) -> list[int]:
-        ids = []
-        for name in self.settings.hotbar:
+    def _fill_default_hotbar(self) -> None:
+        """Creative starter kit from settings (survival starts empty)."""
+        for i, name in enumerate(self.settings.hotbar[:HOTBAR_SLOTS]):
             if name in self.registry.by_name:
-                ids.append(self.registry.id_of(name))
-            else:
-                _log.warning("Unknown hotbar block '%s' — skipped", name)
-        return ids or [self.registry.id_of("stone")]
+                self.inventory.slots[i] = [self.registry.id_of(name), 1]
 
     # -- main loop ------------------------------------------------------------
     def run(self) -> None:
@@ -161,7 +177,7 @@ class Game:
                 self._handle_global_input()
 
                 t0 = time.perf_counter()
-                if not self.paused:
+                if not self.paused and self.screen is None:
                     self._update_gameplay(dt)
                 t1 = time.perf_counter()
 
@@ -194,12 +210,22 @@ class Game:
     def _handle_global_input(self) -> None:
         inp = self.window.input
         if inp.was_pressed(glfw.KEY_ESCAPE):
-            self._set_paused(not self.paused)
-        if not self.window.focused and not self.paused:
+            if self.screen is not None:
+                self._set_screen(None)
+            else:
+                self._set_paused(not self.paused)
+        if inp.was_pressed(glfw.KEY_E) and not self.paused and not self.player.dead:
+            self._set_screen(None if self.screen else "inventory")
+        if not self.window.focused and not self.paused and self.screen is None:
             self._set_paused(True)
-        if self.paused and inp.was_button_pressed(glfw.MOUSE_BUTTON_LEFT):
-            self._set_paused(False)
 
+        if inp.was_pressed(glfw.KEY_F11):
+            self.settings.fullscreen = not self.settings.fullscreen
+            self.window.set_fullscreen(self.settings.fullscreen)
+            save_settings(self.root / "configs" / "settings.json", self.settings)
+
+        if inp.was_pressed(glfw.KEY_F5):
+            self.third_person = not self.third_person
         if inp.was_pressed(glfw.KEY_F3):
             self.debug_visible = not self.debug_visible
         if inp.was_pressed(glfw.KEY_F4):
@@ -213,16 +239,23 @@ class Game:
             stamp = time.strftime("%Y%m%d_%H%M%S")
             self.renderer.screenshot(str(shots / f"shot_{stamp}.png"))
 
-        for i in range(len(self.hotbar_ids)):
+        for i in range(HOTBAR_SLOTS):
             if inp.was_pressed(glfw.KEY_1 + i):
                 self._select_slot(i)
-        if inp.scroll_dy != 0.0:
+        if inp.scroll_dy != 0.0 and self.screen is None:
             step = -1 if inp.scroll_dy > 0 else 1
-            self._select_slot((self.selected_slot + step) % len(self.hotbar_ids))
+            self._select_slot((self.selected_slot + step) % HOTBAR_SLOTS)
 
     def _set_paused(self, paused: bool) -> None:
         self.paused = paused
-        self.window.capture_cursor(not paused)
+        if paused:
+            self.screen = None
+        self.window.capture_cursor(not paused and self.screen is None)
+
+    def _set_screen(self, screen: str | None) -> None:
+        self.screen = screen
+        self.inv_screen.swap_source = None
+        self.window.capture_cursor(screen is None and not self.paused)
 
     def _select_slot(self, index: int) -> None:
         self.selected_slot = index
@@ -236,6 +269,11 @@ class Game:
 
         self.player.update(dt, inp, self.camera)
         self.env.update(dt)
+        self.mobs.update(dt, self.player.position)
+        h_speed = float(np.linalg.norm(self.player.velocity[[0, 2]]))
+        self.player_model.update(dt, h_speed)
+        if self.third_person:
+            self._pull_back_camera()
 
         # Sprint FOV kick eases in and out.
         target_fov = self._base_fov + (7.0 if self.player.sprinting else 0.0)
@@ -246,14 +284,30 @@ class Game:
         if self.player.dead:
             self.target = None
             return
+        # Targeting always originates at the player's eyes, not the camera —
+        # in third person the camera sits metres behind the player.
         self.target = raycast(
             self.world,
-            self.camera.position,
+            self.player.eye_position,
             self.camera.forward,
             _REACH,
             lambda bid: self.registry.render[bid] in _TARGETABLE_RENDERS,
         )
         self._handle_block_edits(dt, inp)
+
+    def _pull_back_camera(self) -> None:
+        """Third person: camera slides back until terrain blocks it."""
+        eye = self.player.eye_position
+        back = -self.camera.forward
+        distance = 0.3
+        while distance < 4.0:
+            probe = eye + back * (distance + 0.3)
+            if self.world.is_solid(
+                int(np.floor(probe[0])), int(np.floor(probe[1])), int(np.floor(probe[2]))
+            ):
+                break
+            distance += 0.3
+        self.camera.position = eye + back * distance
 
     # -- block edits ------------------------------------------------------------
     def _apply_edit(self, x: int, y: int, z: int, block_id: int) -> bool:
@@ -270,16 +324,36 @@ class Game:
     def _handle_block_edits(self, dt: float, inp) -> None:
         if inp.was_button_pressed(glfw.MOUSE_BUTTON_MIDDLE) and self.target:
             picked = self.world.get_block(*self.target.block)
-            if picked != AIR and picked in self.hotbar_ids:
-                self._select_slot(self.hotbar_ids.index(picked))
-            elif picked != AIR:
-                self.hotbar_ids[self.selected_slot] = picked
-                self._select_slot(self.selected_slot)
+            if picked != AIR:
+                if self.player.mode == CREATIVE:
+                    self.inventory.slots[self.selected_slot] = [picked, 1]
+                    self._select_slot(self.selected_slot)
+                else:
+                    # Survival pick: jump to the hotbar slot holding that block.
+                    for i in range(HOTBAR_SLOTS):
+                        entry = self.inventory.slot(i)
+                        if entry and entry[0] == picked:
+                            self._select_slot(i)
+                            break
 
         self._handle_breaking(dt, inp)
         self._handle_placing(dt, inp)
 
+    def _break_block(self, block: tuple[int, int, int], block_id: int) -> None:
+        self._apply_edit(*block, AIR)
+        if self.player.mode == SURVIVAL:
+            drop = int(self.registry.drops[block_id])
+            if drop != AIR:
+                self.inventory.add(drop)
+
     def _handle_breaking(self, dt: float, inp) -> None:
+        # Attacking a mob wins over starting to dig.
+        if inp.was_button_pressed(glfw.MOUSE_BUTTON_LEFT) and self.mobs.try_attack(
+            self.player.eye_position, self.camera.forward, _REACH
+        ):
+            self._break_progress = 0.0
+            self._break_target = None
+            return
         left = inp.is_button_down(glfw.MOUSE_BUTTON_LEFT)
         if not left or self.target is None:
             self._break_progress = 0.0
@@ -300,7 +374,7 @@ class Game:
             else:
                 self._break_progress += dt / _CREATIVE_BREAK_DELAY
             if self._break_progress >= 1.0:
-                self._apply_edit(*block, AIR)
+                self._break_block(block, block_id)
                 self._break_progress = 0.0
             return
 
@@ -311,7 +385,7 @@ class Game:
         hardness = max(float(self.registry.hardness[block_id]), 0.05)
         self._break_progress += dt / hardness
         if self._break_progress >= 1.0:
-            self._apply_edit(*block, AIR)
+            self._break_block(block, block_id)
             self._break_progress = 0.0
             self._break_target = None
 
@@ -329,8 +403,11 @@ class Game:
             self._place_timer = 0.0
 
     def _try_place(self, hit: RayHit) -> bool:
+        entry = self.inventory.slot(self.selected_slot)
+        if entry is None:
+            return False
+        new_id = entry[0]
         cell = hit.previous
-        new_id = self.hotbar_ids[self.selected_slot]
         current = self.world.get_block(*cell)
         if not self.registry.replaceable[current]:
             return False
@@ -343,7 +420,11 @@ class Game:
             cell, self.player.position, Player.HALF_W, Player.HEIGHT
         ):
             return False
-        return self._apply_edit(*cell, new_id)
+        if not self._apply_edit(*cell, new_id):
+            return False
+        if self.player.mode == SURVIVAL:
+            self.inventory.consume_slot(self.selected_slot)
+        return True
 
     # -- rendering ------------------------------------------------------------------
     def _render(self) -> None:
@@ -376,10 +457,23 @@ class Game:
             fog_color=fog_color,
             highlight=self.target.block if self.target else None,
         )
+        if self.env.raining:
+            self.renderer.render_rain(self.camera, self.clock.time)
+
+        # Entities render after the world, before the HUD.
+        self.boxes.begin(self.camera.view_proj())
+        self.mobs.render(self.boxes, self.env.daylight)
+        if self.third_person and not self.player.dead:
+            self.player_model.render(
+                self.boxes, self.world, self.player.position,
+                self.camera.yaw, self.env.daylight,
+                moving=float(np.linalg.norm(self.player.velocity[[0, 2]])) > 0.4,
+            )
+
         stats.update(self.streamer.stats())
         stats.update({f"ms_{k}": v for k, v in self._prof.items()})
 
-        hand_id = self.hotbar_ids[self.selected_slot]
+        hand = self.inventory.slot(self.selected_slot)
         state = HudState(
             fps=self.clock.fps,
             frame_ms=self.clock.delta * 1000.0,
@@ -396,8 +490,8 @@ class Game:
             time_of_day=self.env.time_of_day,
             seed=self.seed,
             hand_label=(
-                self.registry.by_id[hand_id].label
-                if self.clock.time < self._hand_label_until
+                self.registry.by_id[hand[0]].label
+                if hand and self.clock.time < self._hand_label_until
                 else ""
             ),
             flying=self.player.flying,
@@ -415,6 +509,56 @@ class Game:
             dead=self.player.dead,
         )
         self.hud.draw(w, h, state)
+        self._draw_screens(w, h)
+
+    def _draw_screens(self, width: int, height: int) -> None:
+        inp = self.window.input
+        mouse = Mouse(*inp.cursor_pos, inp.was_button_pressed(glfw.MOUSE_BUTTON_LEFT))
+        if self.screen == "inventory":
+            self.selected_slot = self.inv_screen.update(
+                width, height, mouse,
+                creative=self.player.mode == CREATIVE,
+                selected_slot=self.selected_slot,
+            )
+        elif self.paused:
+            s = self.settings
+            values = {
+                "rd": ("Render distance", str(s.render_distance), "step"),
+                "fov": ("Field of view", f"{s.fov:.0f}", "step"),
+                "sens": ("Mouse sensitivity", f"{s.mouse_sensitivity:.2f}", "step"),
+                "vsync": ("VSync", "ON" if s.vsync else "OFF", "toggle"),
+                "full": ("Fullscreen", "ON" if s.fullscreen else "OFF", "toggle"),
+            }
+            action = self.settings_screen.update(width, height, mouse, values)
+            if action:
+                self._apply_setting(action)
+
+    def _apply_setting(self, action: str) -> None:
+        s = self.settings
+        if action == "rd+":
+            s.render_distance = min(16, s.render_distance + 1)
+        elif action == "rd-":
+            s.render_distance = max(4, s.render_distance - 1)
+        elif action == "fov+":
+            s.fov = min(110.0, s.fov + 5.0)
+        elif action == "fov-":
+            s.fov = max(60.0, s.fov - 5.0)
+        elif action == "sens+":
+            s.mouse_sensitivity = min(0.30, round(s.mouse_sensitivity + 0.02, 2))
+        elif action == "sens-":
+            s.mouse_sensitivity = max(0.02, round(s.mouse_sensitivity - 0.02, 2))
+        elif action == "vsync!":
+            s.vsync = not s.vsync
+            self.window.set_vsync(s.vsync)
+        elif action == "full!":
+            s.fullscreen = not s.fullscreen
+            self.window.set_fullscreen(s.fullscreen)
+        if action.startswith("rd"):
+            self.streamer.set_render_radius(s.render_distance)
+        if action.startswith("fov"):
+            self._base_fov = s.fov
+            self.camera.set_fov(s.fov)
+        save_settings(self.root / "configs" / "settings.json", s)
 
     # -- shutdown ------------------------------------------------------------------
     def _shutdown(self) -> None:
@@ -432,6 +576,8 @@ class Game:
                     "selected_slot": self.selected_slot,
                     "mode": self.player.mode,
                     "health": float(self.player.health),
+                    "inventory": self.inventory.to_meta(),
+                    "third_person": self.third_person,
                 }
             )
             saved = self.world.save_all_modified()

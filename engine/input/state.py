@@ -21,6 +21,7 @@ class InputState:
         # some platforms — the window layer arms this flag to swallow it.
         self._skip_next_mouse_delta: bool = False
         self._last_cursor: tuple[float, float] | None = None
+        self.cursor_pos: tuple[float, float] = (0.0, 0.0)  # window coords (UI)
 
     # -- frame lifecycle ---------------------------------------------------
     def begin_frame(self) -> None:
@@ -48,6 +49,7 @@ class InputState:
             self._buttons_down.discard(button)
 
     def on_cursor(self, x: float, y: float) -> None:
+        self.cursor_pos = (x, y)
         if self._last_cursor is None or self._skip_next_mouse_delta:
             self._skip_next_mouse_delta = False
             self._last_cursor = (x, y)
