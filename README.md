@@ -6,8 +6,10 @@
 
 A voxel sandbox game with a custom Python engine built on
 **ModernGL + GLFW + NumPy**. Infinite procedural worlds with biomes, caves,
-ores and trees, a day/night cycle, water, mining and building. Zero external
-assets — every texture is generated procedurally at startup.
+ores and trees, flood-fill lighting with real voxel shadows and warm torch
+light, survival mode with health and fall damage, a day/night cycle with
+clouds and stars, water, mining and building. Zero external assets — every
+texture is generated procedurally at startup.
 
 ## Quick start
 
@@ -26,16 +28,21 @@ Requirements: Python 3.12+ and a GPU with OpenGL 3.3 (practically any).
 |---|---|
 | `W A S D` | move |
 | `Space` | jump / swim up / (while flying) ascend |
-| `Left Ctrl` | sprint |
-| `Left Shift` | (while flying) descend |
-| `F` | toggle flying |
-| `LMB` | break block |
+| `Left Ctrl` | sprint (with an FOV kick) |
+| `Left Shift` | sneak — you cannot fall off edges / (while flying) descend |
+| `F` | toggle flying (creative mode only) |
+| `F4` | switch survival / creative mode |
+| `LMB` | break block (hold to dig — blocks have hardness in survival) |
 | `RMB` | place block |
 | `MMB` | pick targeted block into the hotbar |
 | `1–9` / mouse wheel | select hotbar slot |
-| `F3` | debug overlay (FPS, position, chunk stats) |
+| `F3` | debug overlay (FPS, chunk stats, stage timings) |
 | `F2` | screenshot to `screenshots/` |
 | `ESC` | pause / release mouse |
+
+Survival mode: 10 hearts, fall damage, drowning (air bubbles), lava damage,
+slow regeneration, death & respawn. Creative mode: flying, instant breaking,
+no damage. Torches and glowstone push warm light into the night and caves.
 
 The world saves automatically on exit (modified chunks only) to
 `saves/world/`. Settings (resolution, render distance, FOV, mouse
@@ -66,22 +73,31 @@ classes — adding a block takes a JSON entry plus a 16×16 tile painter.
 
 ### How it works (technical digest)
 
-- **16×16×128 chunks** (NumPy uint8). Generation and meshing run on worker
-  threads (NumPy releases the GIL); GPU uploads happen on the main thread
-  only, under a per-frame budget.
+- **16×16×128 chunks** (NumPy uint8). The streaming pipeline has three
+  worker-thread stages — generate → light → mesh — with nested radii
+  (each stage needs its neighbours from the previous one); GPU uploads
+  happen on the main thread only, under a per-frame budget.
+- **Flood-fill lighting**: two 0–15 fields per chunk. Sky light beams down
+  and floods sideways (real voxel shadows: dark caves, shade under trees);
+  block light floods out of torches, glowstone and lava. Fields are
+  computed with iterative vectorised dilation on a 3×3-chunk window; edits
+  relight a small box seeded with stored boundary light, which handles
+  light removal without the classic two-phase BFS.
 - **Vectorised mesher**: face culling + per-vertex ambient occlusion +
-  quad-diagonal flipping that removes the classic AO anisotropy artifact.
-  A vertex is 2× uint32 (position, corner, AO, face, texture, emission),
-  decoded in the vertex shader whose constant tables are *generated* from
-  the same Python data the mesher uses — a single source of truth.
+  smooth light (average of the four corner cells) + quad-diagonal flipping.
+  A vertex is 2× uint32 (position, corner, AO, face, texture, emission,
+  sky & block light), decoded in the vertex shader whose constant tables
+  are *generated* from the same Python data the mesher uses.
 - **Multi-pass generator**: continents → mountains (ridged noise) → climate
-  (temperature × humidity) → biomes → terrain → caves (spaghetti + caverns)
-  → ores → water → trees → plants. Everything is a pure function of
+  (temperature × humidity) → biomes → terrain → caves (spaghetti + caverns,
+  3D noise at half resolution, ~3× faster) → ores → glowstone pockets →
+  water → trees (oak + birch) → plants. Everything is a pure function of
   `(seed, chunk)`, so trees grow seamlessly across chunk borders.
-- **Renderer**: texture array (no UV bleeding), vectorised frustum culling,
-  opaque pass front-to-back, cutout pass (leaves/glass/plants) without
-  culling, water blended back-to-front with a lowered, waving surface;
-  procedural sky with a sun disc and night-time stars.
+- **Renderer**: texture array (no UV bleeding), vectorised frustum culling
+  with mesh-tight bounds, pooled chunk buffers (remeshes reuse GPU memory),
+  opaque front-to-back, cutout without culling, water blended back-to-front
+  with a waving surface, drifting procedural clouds; sky with a sun disc,
+  a moon and night-time stars.
 
 ## Tests
 

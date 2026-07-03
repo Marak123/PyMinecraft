@@ -1,7 +1,8 @@
-"""HUD: crosshair, hotbar, debug overlay, pause screen.
+"""HUD: crosshair, hotbar, hearts, air bubbles, dig progress, debug overlay.
 
 Pure vertex-data assembly — all actual drawing goes through the renderer's
-UI helpers, so this module owns zero GL objects.
+UI helpers, so this module owns zero GL objects.  Hearts and bubbles are
+tiles from the same procedural texture array the blocks use.
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ from engine.world.blocks import BlockRegistry
 
 _SLOT = 46
 _ICON = 32
+_HEART = 18
 
 
 @dataclass
@@ -33,6 +35,14 @@ class HudState:
     seed: int = 0
     hand_label: str = ""
     flying: bool = False
+    mode: str = "survival"
+    health: float = 20.0
+    max_health: float = 20.0
+    air: float = 10.0
+    max_air: float = 10.0
+    breaking: float | None = None
+    damage_flash: float = 0.0
+    dead: bool = False
 
 
 def _rect(x: float, y: float, w: float, h: float, color: tuple[float, float, float, float]) -> np.ndarray:
@@ -80,6 +90,11 @@ class Hud:
         main = layout_text(self.font, x, y, text, scale)
         self.renderer.draw_ui_text(main, color)
 
+    def _text_centered(self, cx: float, y: float, text: str, scale: float = 1.0,
+                       color: tuple[float, float, float, float] = (1.0, 1.0, 1.0, 1.0)) -> None:
+        w = len(text) * self.font.cell_w * scale
+        self._text(cx - w / 2, y, text, scale, color)
+
     # -- main entry --------------------------------------------------------------
     def draw(self, width: int, height: int, state: HudState) -> None:
         self.renderer.begin_ui(width, height)
@@ -88,12 +103,23 @@ class Hud:
             self.renderer.draw_ui_rects(
                 _rect(0, 0, width, height, (0.05, 0.18, 0.45, 0.28))
             )
+        if state.damage_flash > 0.0:
+            alpha = min(state.damage_flash / 0.4, 1.0) * 0.34
+            self.renderer.draw_ui_rects(
+                _rect(0, 0, width, height, (0.75, 0.05, 0.05, alpha))
+            )
 
         self._draw_crosshair(width, height)
+        if state.breaking is not None:
+            self._draw_break_progress(width, height, state.breaking)
         self._draw_hotbar(width, height, state)
+        if state.mode == "survival":
+            self._draw_vitals(width, height, state)
         if state.debug_visible:
             self._draw_debug(state)
-        if state.paused:
+        if state.dead:
+            self._draw_death(width, height)
+        elif state.paused:
             self._draw_pause(width, height)
 
     # -- pieces ---------------------------------------------------------------
@@ -105,10 +131,22 @@ class Hud:
         )
         self.renderer.draw_ui_rects(rects)
 
-    def _draw_hotbar(self, width: int, height: int, state: HudState) -> None:
+    def _draw_break_progress(self, width: int, height: int, progress: float) -> None:
+        cx, cy = width / 2, height / 2
+        bar_w = 64.0
+        rects = np.concatenate([
+            _rect(cx - bar_w / 2, cy + 18, bar_w, 6, (0.0, 0.0, 0.0, 0.55)),
+            _rect(cx - bar_w / 2 + 1, cy + 19, (bar_w - 2) * min(progress, 1.0), 4,
+                  (0.95, 0.95, 0.95, 0.9)),
+        ])
+        self.renderer.draw_ui_rects(rects)
+
+    def _hotbar_origin(self, width: int, height: int) -> tuple[float, float]:
         n = len(self.hotbar_ids)
-        x0 = width / 2 - (n * _SLOT) / 2
-        y0 = height - _SLOT - 8
+        return width / 2 - (n * _SLOT) / 2, height - _SLOT - 8
+
+    def _draw_hotbar(self, width: int, height: int, state: HudState) -> None:
+        x0, y0 = self._hotbar_origin(width, height)
 
         rects = []
         icons = []
@@ -125,30 +163,69 @@ class Hud:
         self.renderer.draw_ui_rects(np.concatenate(rects))
         self.renderer.draw_ui_blocks(np.concatenate(icons))
 
-        if state.hand_label:
-            label_w = len(state.hand_label) * self.font.cell_w
-            self._text(width / 2 - label_w / 2, y0 - 26, state.hand_label)
+        label = state.hand_label or (
+            "CREATIVE (F4)" if state.mode == "creative" and state.flying else ""
+        )
+        if label:
+            self._text_centered(width / 2, y0 - 26, label)
+
+    def _draw_vitals(self, width: int, height: int, state: HudState) -> None:
+        x0, y0 = self._hotbar_origin(width, height)
+        icons = []
+
+        # Hearts: 10 icons, 2 hp each.
+        hearts_y = y0 - _HEART - 6
+        full_layer = self.renderer.tile_layer("heart_full")
+        half_layer = self.renderer.tile_layer("heart_half")
+        empty_layer = self.renderer.tile_layer("heart_empty")
+        for i in range(10):
+            hp = state.health - i * 2
+            layer = full_layer if hp >= 2 else (half_layer if hp >= 1 else empty_layer)
+            icons.append(_icon_quad(x0 + i * (_HEART + 2), hearts_y, _HEART, layer))
+
+        # Air bubbles appear only while diving, right-aligned over the hotbar.
+        if state.air < state.max_air - 1e-3:
+            bubble_layer = self.renderer.tile_layer("bubble")
+            bubbles = int(np.ceil(state.air))
+            n = len(self.hotbar_ids)
+            bx1 = x0 + n * _SLOT - _HEART
+            for i in range(bubbles):
+                icons.append(
+                    _icon_quad(bx1 - i * (_HEART + 2), hearts_y, _HEART, bubble_layer)
+                )
+
+        if icons:
+            self.renderer.draw_ui_blocks(np.concatenate(icons))
 
     def _draw_debug(self, state: HudState) -> None:
         s = state.stats
         x, y, z = state.position
         lines = [
             f"PyMinecraft dev | FPS {state.fps:5.0f} | {state.frame_ms:5.1f} ms"
-            + (" | FLY" if state.flying else ""),
+            f" | {state.mode.upper()}" + (" FLY" if state.flying else ""),
             f"XYZ: {x:8.2f} / {y:6.2f} / {z:8.2f}   chunk: {state.chunk[0]}, {state.chunk[1]}",
             f"chunks: {s.get('loaded', 0)} loaded, {s.get('chunks_visible', 0)} visible"
-            f" | jobs: gen {s.get('pending_gen', 0)}, mesh {s.get('pending_mesh', 0)}",
+            f" | jobs: gen {s.get('pending_gen', 0)}, light {s.get('pending_light', 0)},"
+            f" mesh {s.get('pending_mesh', 0)}",
             f"verts: {s.get('vertices', 0) / 1e6:.2f}M   day: {state.time_of_day:.2f}"
             f"   seed: {state.seed}",
+            f"ms: update {s.get('ms_update', 0.0):4.1f} | stream {s.get('ms_stream', 0.0):4.1f}"
+            f" | render {s.get('ms_render', 0.0):4.1f}",
         ]
         for i, line in enumerate(lines):
             self._text(8, 8 + i * (self.font.cell_h + 2), line)
 
     def _draw_pause(self, width: int, height: int) -> None:
         self.renderer.draw_ui_rects(_rect(0, 0, width, height, (0.0, 0.0, 0.0, 0.55)))
-        title = "PAUSED"
-        hint = "Press ESC or click to resume"
-        tw = len(title) * self.font.cell_w * 2
-        hw = len(hint) * self.font.cell_w
-        self._text(width / 2 - tw / 2, height / 2 - 40, title, scale=2.0)
-        self._text(width / 2 - hw / 2, height / 2 + 8, hint, color=(0.9, 0.9, 0.9, 1.0))
+        self._text_centered(width / 2, height / 2 - 40, "PAUSED", scale=2.0)
+        self._text_centered(
+            width / 2, height / 2 + 8, "Press ESC or click to resume",
+            color=(0.9, 0.9, 0.9, 1.0),
+        )
+
+    def _draw_death(self, width: int, height: int) -> None:
+        self.renderer.draw_ui_rects(_rect(0, 0, width, height, (0.35, 0.0, 0.0, 0.5)))
+        self._text_centered(width / 2, height / 2 - 40, "YOU DIED", scale=2.0)
+        self._text_centered(
+            width / 2, height / 2 + 8, "Respawning...", color=(0.95, 0.85, 0.85, 1.0)
+        )

@@ -1,7 +1,8 @@
 """Game assembly and main loop.
 
 Wires engine subsystems together (window, renderer, world, streaming,
-physics) and adds the gameplay: block interaction, hotbar, day cycle, HUD.
+lighting, physics) and adds the gameplay: block interaction with dig times,
+survival state, hotbar, day cycle, HUD.
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ from engine.graphics.renderer import Renderer
 from engine.physics.aabb import block_intersects_box
 from engine.physics.raycast import RayHit, raycast
 from engine.window import Window
+from engine.world import lighting
 from engine.world.blocks import (
     AIR,
     RENDER_CROSS,
@@ -37,12 +39,13 @@ from engine.world.save import WorldStorage
 from engine.world.streaming import ChunkStreamer
 from engine.world.world import World
 from game.hud import Hud, HudState
-from game.player import Player
+from game.player import CREATIVE, SURVIVAL, Player
 
 _log = get_logger("game")
 
 _REACH = 5.5
-_EDIT_REPEAT_DELAY = 0.22
+_PLACE_REPEAT_DELAY = 0.22
+_CREATIVE_BREAK_DELAY = 0.22
 _TARGETABLE_RENDERS = (RENDER_SOLID, RENDER_CUTOUT, RENDER_CROSS)
 
 
@@ -80,7 +83,7 @@ class Game:
         self.renderer = Renderer(self.window.ctx, self.registry, font_atlas)
         self.streamer = ChunkStreamer(
             self.world,
-            mesh_fn=lambda padded: build_chunk_meshes(padded, self.registry),
+            mesh_fn=lambda mesh_input: build_chunk_meshes(mesh_input, self.registry),
             upload_fn=self.renderer.upload_chunk,
             unload_fn=self.renderer.unload_chunk,
             render_radius=self.settings.render_distance,
@@ -92,14 +95,17 @@ class Game:
         )
         w, h = self.window.framebuffer_size
         self.camera = Camera(self.settings.fov, w / max(h, 1))
+        self._base_fov = self.settings.fov
 
         spawn = self._prepare_spawn(meta)
         self.player = Player(self.world, self.registry, spawn)
+        self.player.mode = str(meta.get("mode", SURVIVAL))
+        self.player.health = float(meta.get("health", Player.MAX_HEALTH))
         if "player_pos" in meta:
             self.player.position = np.array(meta["player_pos"], dtype=np.float64)
             self.camera.yaw = float(meta.get("player_yaw", self.camera.yaw))
             self.camera.pitch = float(meta.get("player_pitch", self.camera.pitch))
-            self.player.flying = bool(meta.get("flying", False))
+            self.player.flying = bool(meta.get("flying", False)) and self.player.mode == CREATIVE
         self.camera.position = self.player.eye_position
 
         self.hotbar_ids = self._resolve_hotbar()
@@ -110,8 +116,11 @@ class Game:
         self.paused = False
         self.debug_visible = True
         self.target: RayHit | None = None
-        self._edit_timer = 0.0
+        self._place_timer = 0.0
+        self._break_progress = 0.0
+        self._break_target: tuple[int, int, int] | None = None
         self._hand_label_until = 0.0
+        self._prof: dict[str, float] = {}
         self.window.capture_cursor(True)
 
     # -- setup helpers ------------------------------------------------------------
@@ -123,7 +132,7 @@ class Game:
         else:
             sx, sz = self.world.generator.find_spawn()
         scx, scz = sx >> 4, sz >> 4
-        self.streamer.ensure_spawn_area(scx, scz, radius=2)
+        self.streamer.ensure_spawn_area(scx, scz, radius=1)
         chunk = self.world.get_chunk(scx, scz)
         assert chunk is not None
         ground = surface_height(chunk.blocks, sx & 15, sz & 15, self.registry)
@@ -151,8 +160,10 @@ class Game:
                 self.window.poll()
                 self._handle_global_input()
 
+                t0 = time.perf_counter()
                 if not self.paused:
                     self._update_gameplay(dt)
+                t1 = time.perf_counter()
 
                 center = (
                     int(np.floor(self.player.position[0])) >> 4,
@@ -160,8 +171,15 @@ class Game:
                 )
                 fwd = self.camera.forward
                 self.streamer.update(center, (float(fwd[0]), float(fwd[2])))
+                t2 = time.perf_counter()
 
                 self._render()
+                t3 = time.perf_counter()
+                self._prof = {
+                    "update": (t1 - t0) * 1000.0,
+                    "stream": (t2 - t1) * 1000.0,
+                    "render": (t3 - t2) * 1000.0,
+                }
                 self.window.swap()
 
                 frames += 1
@@ -184,6 +202,11 @@ class Game:
 
         if inp.was_pressed(glfw.KEY_F3):
             self.debug_visible = not self.debug_visible
+        if inp.was_pressed(glfw.KEY_F4):
+            self.player.set_mode(
+                CREATIVE if self.player.mode == SURVIVAL else SURVIVAL
+            )
+            self._hand_label_until = 0.0  # make room for the mode banner
         if inp.was_pressed(glfw.KEY_F2):
             shots = self.root / "screenshots"
             shots.mkdir(exist_ok=True)
@@ -214,6 +237,15 @@ class Game:
         self.player.update(dt, inp, self.camera)
         self.env.update(dt)
 
+        # Sprint FOV kick eases in and out.
+        target_fov = self._base_fov + (7.0 if self.player.sprinting else 0.0)
+        self.camera.set_fov(
+            self.camera.fov + (target_fov - self.camera.fov) * min(1.0, 12.0 * dt)
+        )
+
+        if self.player.dead:
+            self.target = None
+            return
         self.target = raycast(
             self.world,
             self.camera.position,
@@ -223,14 +255,19 @@ class Game:
         )
         self._handle_block_edits(dt, inp)
 
-    def _handle_block_edits(self, dt: float, inp) -> None:
-        left = inp.is_button_down(glfw.MOUSE_BUTTON_LEFT)
-        right = inp.is_button_down(glfw.MOUSE_BUTTON_RIGHT)
-        if not (left or right):
-            self._edit_timer = _EDIT_REPEAT_DELAY  # first press acts instantly
-        else:
-            self._edit_timer += dt
+    # -- block edits ------------------------------------------------------------
+    def _apply_edit(self, x: int, y: int, z: int, block_id: int) -> bool:
+        """set_block + incremental relight + remesh scheduling."""
+        if not self.world.set_block(x, y, z, block_id):
+            return False
+        # Breaking the support from under a plant/torch pops the plant too.
+        above = self.world.get_block(x, y + 1, z)
+        if block_id == AIR and self.registry.needs_support[above]:
+            self.world.set_block(x, y + 1, z, AIR)
+        self.world.dirty_chunks |= lighting.relight_box(self.world, x, y, z)
+        return True
 
+    def _handle_block_edits(self, dt: float, inp) -> None:
         if inp.was_button_pressed(glfw.MOUSE_BUTTON_MIDDLE) and self.target:
             picked = self.world.get_block(*self.target.block)
             if picked != AIR and picked in self.hotbar_ids:
@@ -239,35 +276,74 @@ class Game:
                 self.hotbar_ids[self.selected_slot] = picked
                 self._select_slot(self.selected_slot)
 
-        act = (
-            inp.was_button_pressed(glfw.MOUSE_BUTTON_LEFT)
-            or inp.was_button_pressed(glfw.MOUSE_BUTTON_RIGHT)
-            or self._edit_timer >= _EDIT_REPEAT_DELAY
-        )
-        if not act or self.target is None:
+        self._handle_breaking(dt, inp)
+        self._handle_placing(dt, inp)
+
+    def _handle_breaking(self, dt: float, inp) -> None:
+        left = inp.is_button_down(glfw.MOUSE_BUTTON_LEFT)
+        if not left or self.target is None:
+            self._break_progress = 0.0
+            self._break_target = None
             return
 
-        if left:
-            block_id = self.world.get_block(*self.target.block)
-            if self.registry.by_id[block_id].breakable:
-                self.world.set_block(*self.target.block, AIR)
-                self._edit_timer = 0.0
-        elif right:
-            self._try_place(self.target)
+        block = self.target.block
+        block_id = self.world.get_block(*block)
+        if not self.registry.by_id[block_id].breakable:
+            self._break_progress = 0.0
+            self._break_target = None
+            return
 
-    def _try_place(self, hit: RayHit) -> None:
+        if self.player.mode == CREATIVE:
+            # Creative: instant, with a small repeat delay while held.
+            if inp.was_button_pressed(glfw.MOUSE_BUTTON_LEFT):
+                self._break_progress = 1.0
+            else:
+                self._break_progress += dt / _CREATIVE_BREAK_DELAY
+            if self._break_progress >= 1.0:
+                self._apply_edit(*block, AIR)
+                self._break_progress = 0.0
+            return
+
+        # Survival: hold to dig, progress resets when the target changes.
+        if block != self._break_target:
+            self._break_target = block
+            self._break_progress = 0.0
+        hardness = max(float(self.registry.hardness[block_id]), 0.05)
+        self._break_progress += dt / hardness
+        if self._break_progress >= 1.0:
+            self._apply_edit(*block, AIR)
+            self._break_progress = 0.0
+            self._break_target = None
+
+    def _handle_placing(self, dt: float, inp) -> None:
+        right = inp.is_button_down(glfw.MOUSE_BUTTON_RIGHT)
+        if not right:
+            self._place_timer = _PLACE_REPEAT_DELAY  # first press acts instantly
+            return
+        self._place_timer += dt
+        act = (
+            inp.was_button_pressed(glfw.MOUSE_BUTTON_RIGHT)
+            or self._place_timer >= _PLACE_REPEAT_DELAY
+        )
+        if act and self.target is not None and self._try_place(self.target):
+            self._place_timer = 0.0
+
+    def _try_place(self, hit: RayHit) -> bool:
         cell = hit.previous
         new_id = self.hotbar_ids[self.selected_slot]
         current = self.world.get_block(*cell)
         if not self.registry.replaceable[current]:
-            return
+            return False
+        # Plants and torches need solid ground under them.
+        below = self.world.get_block(cell[0], cell[1] - 1, cell[2])
+        if self.registry.needs_support[new_id] and not self.registry.solid[below]:
+            return False
         # Never let a solid block materialise inside the player.
         if self.registry.solid[new_id] and block_intersects_box(
             cell, self.player.position, Player.HALF_W, Player.HEIGHT
         ):
-            return
-        if self.world.set_block(*cell, new_id):
-            self._edit_timer = 0.0
+            return False
+        return self._apply_edit(*cell, new_id)
 
     # -- rendering ------------------------------------------------------------------
     def _render(self) -> None:
@@ -282,9 +358,14 @@ class Game:
         fog_color = None
         underwater = self.player.eye_in_fluid_id != 0
         if underwater:
-            fog_start, fog_end = 2.0, 22.0
-            d = max(self.env.daylight, 0.12)
-            fog_color = (0.045 * d, 0.14 * d, 0.38 * d)
+            if self.registry.by_id.get(self.player.eye_in_fluid_id) and \
+               self.registry.by_id[self.player.eye_in_fluid_id].name == "lava":
+                fog_start, fog_end = 0.5, 6.0
+                fog_color = (0.45, 0.12, 0.02)
+            else:
+                fog_start, fog_end = 2.0, 22.0
+                d = max(self.env.daylight, 0.12)
+                fog_color = (0.045 * d, 0.14 * d, 0.38 * d)
 
         stats = self.renderer.render_world(
             self.camera,
@@ -296,6 +377,7 @@ class Game:
             highlight=self.target.block if self.target else None,
         )
         stats.update(self.streamer.stats())
+        stats.update({f"ms_{k}": v for k, v in self._prof.items()})
 
         hand_id = self.hotbar_ids[self.selected_slot]
         state = HudState(
@@ -319,6 +401,18 @@ class Game:
                 else ""
             ),
             flying=self.player.flying,
+            mode=self.player.mode,
+            health=self.player.health,
+            max_health=Player.MAX_HEALTH,
+            air=self.player.air,
+            max_air=Player.MAX_AIR,
+            breaking=(
+                self._break_progress
+                if 0.0 < self._break_progress < 1.0 and self.player.mode == SURVIVAL
+                else None
+            ),
+            damage_flash=self.player.damage_flash,
+            dead=self.player.dead,
         )
         self.hud.draw(w, h, state)
 
@@ -336,6 +430,8 @@ class Game:
                     "player_pitch": self.camera.pitch,
                     "flying": self.player.flying,
                     "selected_slot": self.selected_slot,
+                    "mode": self.player.mode,
+                    "health": float(self.player.health),
                 }
             )
             saved = self.world.save_all_modified()

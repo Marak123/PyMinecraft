@@ -7,11 +7,16 @@ uniform values) — it knows nothing about gameplay.
 Frame structure:
     sky (fullscreen, no depth) -> opaque (front-to-back, culled)
     -> cutout (alpha-tested, no cull) -> water (blended, back-to-front)
-    -> highlight box -> UI overlay
+    -> clouds (blended, no depth write) -> highlight box -> UI overlay
+
+Chunk buffers are pooled: a remesh reuses the existing GPU buffer when the
+new data fits (with slack), avoiding constant allocate/free churn while
+editing.
 """
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 import moderngl
@@ -28,12 +33,21 @@ from engine.world.environment import Environment
 
 _log = get_logger("renderer")
 
+# UI-only tiles appended to the block tile atlas (hearts, bubbles...).
+_UI_TILES = ("heart_full", "heart_half", "heart_empty", "bubble")
+
+_CLOUD_ALTITUDE = 112.0
+_CLOUD_CELL = 12.0
+_CLOUD_GRID = 48
+_CLOUD_PERIOD = _CLOUD_CELL * _CLOUD_GRID
+
 
 @dataclass
 class _Stream:
     vbo: moderngl.Buffer
     vao: moderngl.VertexArray
-    count: int
+    count: int      # vertices in use
+    capacity: int   # bytes allocated
 
     def release(self) -> None:
         self.vao.release()
@@ -41,7 +55,7 @@ class _Stream:
 
 
 class _ChunkGpu:
-    __slots__ = ("origin", "center", "opaque", "cutout", "water")
+    __slots__ = ("origin", "center", "half", "opaque", "cutout", "water")
 
     def __init__(self, cx: int, cz: int) -> None:
         ox, oz = cx * CHUNK_X, cz * CHUNK_Z
@@ -49,18 +63,22 @@ class _ChunkGpu:
         self.center = np.array(
             [ox + CHUNK_X / 2, CHUNK_Y / 2, oz + CHUNK_Z / 2], dtype=np.float64
         )
+        self.half = np.array([CHUNK_X / 2, CHUNK_Y / 2, CHUNK_Z / 2], dtype=np.float64)
         self.opaque: _Stream | None = None
         self.cutout: _Stream | None = None
         self.water: _Stream | None = None
+
+    def set_y_bounds(self, y_min: int, y_max: int) -> None:
+        # Tight vertical bounds from the mesher make frustum culling reject
+        # flat far chunks when looking up/down.
+        self.center[1] = (y_min + y_max) / 2
+        self.half[1] = max((y_max - y_min) / 2, 1.0)
 
     def release(self) -> None:
         for stream in (self.opaque, self.cutout, self.water):
             if stream is not None:
                 stream.release()
         self.opaque = self.cutout = self.water = None
-
-
-_CHUNK_HALF_EXTENTS = np.array([CHUNK_X / 2, CHUNK_Y / 2, CHUNK_Z / 2])
 
 
 def _unit_cube_edges() -> np.ndarray:
@@ -73,6 +91,33 @@ def _unit_cube_edges() -> np.ndarray:
     verts = np.array(lines, dtype=np.float32)
     # Slight inflation prevents z-fighting with the block's own faces.
     return (verts - 0.5) * 1.004 + 0.5
+
+
+def _cloud_mesh() -> np.ndarray:
+    """Static quad field for one cloud tile (periodic, world-anchored)."""
+    rng = np.random.default_rng(7)
+    field = rng.random((_CLOUD_GRID, _CLOUD_GRID))
+    # Two smoothing passes clump the noise into blobby cloud banks.
+    for _ in range(2):
+        field = sum(
+            np.roll(np.roll(field, dx, 0), dz, 1)
+            for dx in (-1, 0, 1)
+            for dz in (-1, 0, 1)
+        ) / 9.0
+    mask = field > 0.55
+    xs, zs = np.nonzero(mask)
+    quads = np.empty((len(xs), 6, 2), dtype=np.float32)
+    x0 = xs * _CLOUD_CELL
+    z0 = zs * _CLOUD_CELL
+    x1 = x0 + _CLOUD_CELL
+    z1 = z0 + _CLOUD_CELL
+    quads[:, 0] = np.stack([x0, z0], 1)
+    quads[:, 1] = np.stack([x1, z0], 1)
+    quads[:, 2] = np.stack([x1, z1], 1)
+    quads[:, 3] = np.stack([x0, z0], 1)
+    quads[:, 4] = np.stack([x1, z1], 1)
+    quads[:, 5] = np.stack([x0, z1], 1)
+    return quads.reshape(-1, 2)
 
 
 class Renderer:
@@ -89,15 +134,21 @@ class Renderer:
         self.prog_chunk = ctx.program(shaders.CHUNK_VERT, shaders.CHUNK_FRAG)
         self.prog_water = ctx.program(shaders.WATER_VERT, shaders.WATER_FRAG)
         self.prog_sky = ctx.program(shaders.SKY_VERT, shaders.SKY_FRAG)
+        self.prog_clouds = ctx.program(shaders.CLOUD_VERT, shaders.CLOUD_FRAG)
         self.prog_lines = ctx.program(shaders.LINES_VERT, shaders.LINES_FRAG)
         self.prog_ui_color = ctx.program(shaders.UI_COLOR_VERT, shaders.UI_COLOR_FRAG)
         self.prog_ui_text = ctx.program(shaders.UI_TEXT_VERT, shaders.UI_TEXT_FRAG)
         self.prog_ui_block = ctx.program(shaders.UI_BLOCK_VERT, shaders.UI_BLOCK_FRAG)
 
         # Procedural tile texture array; layer ids are baked into the registry
-        # so the mesher can emit them directly into vertex data.
-        tiles, mapping = atlas.build_tiles(registry.required_tiles())
+        # so the mesher can emit them directly into vertex data.  UI-only
+        # tiles (hearts etc.) ride along in the same array.
+        tile_names = registry.required_tiles() + [
+            t for t in _UI_TILES if t not in registry.required_tiles()
+        ]
+        tiles, mapping = atlas.build_tiles(tile_names)
         registry.assign_texture_layers(mapping)
+        self._tile_layers = mapping
         self.tiles = ctx.texture_array(
             (atlas.TILE, atlas.TILE, tiles.shape[0]), 4, tiles.tobytes()
         )
@@ -112,6 +163,12 @@ class Renderer:
         self._box_vbo = ctx.buffer(_unit_cube_edges().tobytes())
         self._box_vao = ctx.vertex_array(
             self.prog_lines, [(self._box_vbo, "3f4", "in_pos")]
+        )
+        cloud_verts = _cloud_mesh()
+        self._cloud_count = len(cloud_verts)
+        self._cloud_vbo = ctx.buffer(cloud_verts.tobytes())
+        self._cloud_vao = ctx.vertex_array(
+            self.prog_clouds, [(self._cloud_vbo, "2f4", "in_pos")]
         )
 
         # Dynamic UI buffers, grown on demand.
@@ -138,6 +195,10 @@ class Renderer:
         self._set(self.prog_water, "u_alpha", 0.62)
         _log.info("Renderer ready (%d tile layers)", tiles.shape[0])
 
+    def tile_layer(self, name: str) -> int:
+        """Texture-array layer of a tile by name (UI icons)."""
+        return self._tile_layers[name]
+
     # -- small uniform helpers ---------------------------------------------------
     @staticmethod
     def _set(prog: moderngl.Program, name: str, value) -> None:
@@ -154,23 +215,38 @@ class Renderer:
             pass
 
     # -- chunk mesh lifecycle ------------------------------------------------------
-    def _make_stream(self, prog: moderngl.Program, data: np.ndarray | None) -> _Stream | None:
+    def _update_stream(
+        self, prog: moderngl.Program, stream: _Stream | None, data: np.ndarray | None
+    ) -> _Stream | None:
+        """Upload a mesh stream, reusing the existing buffer when it fits."""
         if data is None or len(data) == 0:
+            if stream is not None:
+                stream.release()
             return None
-        vbo = self.ctx.buffer(data.tobytes())
+        payload = data.tobytes()
+        if stream is not None and len(payload) <= stream.capacity:
+            stream.vbo.orphan()
+            stream.vbo.write(payload)
+            stream.count = len(data) // 2
+            return stream
+        if stream is not None:
+            stream.release()
+        capacity = int(len(payload) * 1.25)
+        vbo = self.ctx.buffer(reserve=capacity, dynamic=True)
+        vbo.write(payload)
         vao = self.ctx.vertex_array(prog, [(vbo, "2u4", "in_data")])
-        return _Stream(vbo, vao, len(data) // 2)
+        return _Stream(vbo, vao, len(data) // 2, capacity)
 
     def upload_chunk(self, cx: int, cz: int, mesh: ChunkMeshData) -> None:
         key = (cx, cz)
-        old = self._chunks.pop(key, None)
-        if old is not None:
-            old.release()
-        gpu = _ChunkGpu(cx, cz)
-        gpu.opaque = self._make_stream(self.prog_chunk, mesh.opaque)
-        gpu.cutout = self._make_stream(self.prog_chunk, mesh.cutout)
-        gpu.water = self._make_stream(self.prog_water, mesh.water)
-        self._chunks[key] = gpu
+        gpu = self._chunks.get(key)
+        if gpu is None:
+            gpu = _ChunkGpu(cx, cz)
+            self._chunks[key] = gpu
+        gpu.opaque = self._update_stream(self.prog_chunk, gpu.opaque, mesh.opaque)
+        gpu.cutout = self._update_stream(self.prog_chunk, gpu.cutout, mesh.cutout)
+        gpu.water = self._update_stream(self.prog_water, gpu.water, mesh.water)
+        gpu.set_y_bounds(mesh.y_min, mesh.y_max)
 
     def unload_chunk(self, cx: int, cz: int) -> None:
         gpu = self._chunks.pop((cx, cz), None)
@@ -194,6 +270,7 @@ class Renderer:
         ctx = self.ctx
         view_proj = camera.view_proj()
         fog = tuple(fog_color if fog_color is not None else env.fog_color)
+        self._daylight_cache = env.daylight
 
         ctx.clear(fog[0], fog[1], fog[2], 1.0, depth=1.0)
 
@@ -210,16 +287,20 @@ class Renderer:
         keys = list(self._chunks.keys())
         stats = {"chunks_loaded": len(keys), "chunks_visible": 0, "vertices": 0}
         if not keys:
+            self._render_clouds(camera, view_proj, time_s, fog, fog_start, fog_end)
             return stats
-        centers = np.array([self._chunks[k].center for k in keys])
+        gpus = [self._chunks[k] for k in keys]
+        centers = np.array([g.center for g in gpus])
+        halves = np.array([g.half for g in gpus])
         planes = camera.frustum_planes()
-        visible_mask = mathx.aabbs_in_frustum(planes, centers, _CHUNK_HALF_EXTENTS)
+        visible_mask = mathx.aabbs_in_frustum(planes, centers, halves)
         visible_idx = np.nonzero(visible_mask)[0]
         if len(visible_idx) == 0:
+            self._render_clouds(camera, view_proj, time_s, fog, fog_start, fog_end)
             return stats
         dist2 = np.sum((centers[visible_idx] - camera.position) ** 2, axis=1)
         order = visible_idx[np.argsort(dist2)]  # front-to-back
-        visible = [self._chunks[keys[i]] for i in order]
+        visible = [gpus[i] for i in order]
         stats["chunks_visible"] = len(visible)
 
         # -- opaque ------------------------------------------------------------
@@ -239,7 +320,7 @@ class Renderer:
         for gpu in visible:
             if gpu.opaque is not None:
                 origin_uniform.value = gpu.origin
-                gpu.opaque.vao.render(moderngl.TRIANGLES)
+                gpu.opaque.vao.render(moderngl.TRIANGLES, vertices=gpu.opaque.count)
                 stats["vertices"] += gpu.opaque.count
 
         # -- cutout (leaves, glass, plants): both faces visible ---------------------
@@ -248,7 +329,7 @@ class Renderer:
         for gpu in visible:
             if gpu.cutout is not None:
                 origin_uniform.value = gpu.origin
-                gpu.cutout.vao.render(moderngl.TRIANGLES)
+                gpu.cutout.vao.render(moderngl.TRIANGLES, vertices=gpu.cutout.count)
                 stats["vertices"] += gpu.cutout.count
 
         # -- water (translucent): back-to-front --------------------------------------
@@ -267,11 +348,14 @@ class Renderer:
         for gpu in reversed(visible):
             if gpu.water is not None:
                 water_origin.value = gpu.origin
-                gpu.water.vao.render(moderngl.TRIANGLES)
+                gpu.water.vao.render(moderngl.TRIANGLES, vertices=gpu.water.count)
                 stats["vertices"] += gpu.water.count
+
+        self._render_clouds(camera, view_proj, time_s, fog, fog_start, fog_end)
 
         # -- targeted block outline ---------------------------------------------------
         if highlight is not None:
+            ctx.enable(moderngl.BLEND)
             self._set_mat(self.prog_lines, "u_view_proj", view_proj)
             self._set(self.prog_lines, "u_offset", tuple(float(c) for c in highlight))
             self._set(self.prog_lines, "u_color", (0.0, 0.0, 0.0, 0.7))
@@ -279,6 +363,49 @@ class Renderer:
 
         ctx.disable(moderngl.BLEND)
         return stats
+
+    def _render_clouds(
+        self,
+        camera,
+        view_proj: np.ndarray,
+        time_s: float,
+        fog: tuple[float, float, float],
+        fog_start: float,
+        fog_end: float,
+    ) -> None:
+        ctx = self.ctx
+        ctx.enable(moderngl.DEPTH_TEST | moderngl.BLEND)
+        ctx.disable(moderngl.CULL_FACE)
+        ctx.blend_func = moderngl.SRC_ALPHA, moderngl.ONE_MINUS_SRC_ALPHA
+        try:
+            ctx.fbo.depth_mask = False
+        except AttributeError:
+            pass
+        prog = self.prog_clouds
+        self._set_mat(prog, "u_view_proj", view_proj)
+        self._set(prog, "u_fog_color", fog)
+        # Clouds live far above terrain: stretch their fog so they stay
+        # visible to the horizon instead of dissolving with the ground fog.
+        self._set(prog, "u_fog_range", (fog_start * 1.6, fog_end * 2.2))
+        self._set(prog, "u_camera_pos", tuple(camera.position))
+        self._set(prog, "u_daylight", getattr(self, "_daylight_cache", 1.0))
+        origin = prog["u_cloud_origin"]
+
+        drift = time_s * 1.7
+        base_x = math.floor((camera.position[0] - drift) / _CLOUD_PERIOD)
+        base_z = math.floor(camera.position[2] / _CLOUD_PERIOD)
+        for dx in (-1, 0, 1):
+            for dz in (-1, 0, 1):
+                origin.value = (
+                    (base_x + dx) * _CLOUD_PERIOD + drift,
+                    _CLOUD_ALTITUDE,
+                    (base_z + dz) * _CLOUD_PERIOD,
+                )
+                self._cloud_vao.render(moderngl.TRIANGLES, vertices=self._cloud_count)
+        try:
+            ctx.fbo.depth_mask = True
+        except AttributeError:
+            pass
 
     # -- UI -----------------------------------------------------------------------
     def begin_ui(self, width: int, height: int) -> None:

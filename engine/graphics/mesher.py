@@ -1,14 +1,18 @@
 """Vectorised chunk mesher.
 
-Face-culling mesher with per-vertex ambient occlusion, fully vectorised in
-NumPy — no per-block Python loops.  Emits the compressed 8-byte vertex
-format described in :mod:`engine.graphics.cubegeom`.
+Face-culling mesher with per-vertex ambient occlusion and *smooth lighting*,
+fully vectorised in NumPy — no per-block Python loops.  Emits the compressed
+8-byte vertex format described in :mod:`engine.graphics.cubegeom`.
+
+Smooth lighting samples the same four cells per face corner that AO uses
+(front, two edges, diagonal) and averages their light, which produces the
+soft light gradients and voxel shadows the renderer displays.
 
 Runs on worker threads: it only reads immutable registry tables and the
-padded block snapshot it is given.
+padded snapshots it is given.
 
 (Greedy meshing is a known future optimisation; it conflicts with per-vertex
-AO and needs benchmarking first — see docs/ROADMAP.md.)
+AO/light and needs benchmarking first — see docs/ROADMAP.md.)
 """
 
 from __future__ import annotations
@@ -17,7 +21,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from engine.graphics.cubegeom import AO_OFFSETS
+from engine.graphics.cubegeom import AO_OFFSETS, FACE_NORMALS
 from engine.world.blocks import (
     RENDER_CROSS,
     RENDER_CUTOUT,
@@ -53,6 +57,8 @@ class ChunkMeshData:
     opaque: np.ndarray | None
     cutout: np.ndarray | None
     water: np.ndarray | None
+    y_min: int = 0
+    y_max: int = CHUNK_Y
 
     @property
     def vertex_count(self) -> int:
@@ -73,65 +79,90 @@ def _pack_faces(
     ys: np.ndarray,
     face: int,
     ao: np.ndarray,          # (n, 4) uint32 values 0..3
+    sky: np.ndarray,         # (n, 4) uint32 values 0..15
+    blk: np.ndarray,         # (n, 4) uint32 values 0..15
     tex_layers: np.ndarray,  # (n,)
     emission: np.ndarray,    # (n,)
     flags: np.ndarray | None = None,  # (n,) 0/1
 ) -> np.ndarray:
     n = len(xs)
-    base = (
+    base0 = (
         xs.astype(_U32)
         | (ys.astype(_U32) << _U32(6))
         | (zs.astype(_U32) << _U32(14))
         | (_U32(face) << _U32(24))
     )
     if flags is not None:
-        base |= flags.astype(_U32) << _U32(27)
+        base0 |= flags.astype(_U32) << _U32(27)
 
     corner_ids = np.arange(4, dtype=_U32)
-    words0 = base[:, None] | (corner_ids[None, :] << _U32(20)) | (ao << _U32(22))
+    words0 = base0[:, None] | (corner_ids[None, :] << _U32(20)) | (ao << _U32(22))
+
+    base1 = tex_layers.astype(_U32) | (emission.astype(_U32) << _U32(16))
+    words1 = base1[:, None] | (sky << _U32(20)) | (blk << _U32(24))
 
     # Flip triangulation so the quad diagonal runs through the brighter pair
     # of corners — removes the classic AO "bowtie" artifact.
     flip = (ao[:, 0] + ao[:, 2]) >= (ao[:, 1] + ao[:, 3])
     pattern = np.where(flip[:, None], _PAT_A[None, :], _PAT_B[None, :])
-    verts0 = np.take_along_axis(words0, pattern, axis=1)  # (n, 6)
 
-    word1 = (tex_layers.astype(_U32) | (emission.astype(_U32) << _U32(16)))
     out = np.empty((n, 6, 2), dtype=_U32)
-    out[:, :, 0] = verts0
-    out[:, :, 1] = word1[:, None]
+    out[:, :, 0] = np.take_along_axis(words0, pattern, axis=1)
+    out[:, :, 1] = np.take_along_axis(words1, pattern, axis=1)
     return out.reshape(-1)
 
 
-def _corner_ao(
+def _corner_shading(
     opaque_padded: np.ndarray,
+    sky_padded: np.ndarray,
+    blk_padded: np.ndarray,
     xs: np.ndarray,
     zs: np.ndarray,
     ys: np.ndarray,
     face: int,
-) -> np.ndarray:
-    """Per-corner AO values (n, 4) in 0..3 (3 = fully open)."""
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Per-corner (ao, sky, block) — AO in 0..3, light in 0..15.
+
+    Light is the average of the four cells touching the corner in the layer
+    the face looks into; opaque cells hold light 0, so the average naturally
+    darkens corners against walls (soft voxel shadows).
+    """
     n = len(xs)
     ao = np.empty((n, 4), dtype=_U32)
+    sky = np.empty((n, 4), dtype=_U32)
+    blk = np.empty((n, 4), dtype=_U32)
+
+    # The cell directly in front of the face is shared by all four corners.
+    fx, fy, fz = FACE_NORMALS[face]
+    front = (xs + 1 + fx, zs + 1 + fz, ys + 1 + fy)
+    front_sky = sky_padded[front].astype(np.uint16)
+    front_blk = blk_padded[front].astype(np.uint16)
+
     for corner in range(4):
         offs = AO_OFFSETS[face, corner]  # (3 samples, 3 comps) in world (x,y,z)
-        samples = []
-        for k in range(3):
-            ox, oy, oz = offs[k]
-            samples.append(
-                opaque_padded[xs + 1 + ox, zs + 1 + oz, ys + 1 + oy]
-            )
-        s1, s2, diag = samples
+        idx = [
+            (xs + 1 + offs[k, 0], zs + 1 + offs[k, 2], ys + 1 + offs[k, 1])
+            for k in range(3)
+        ]
+        s1, s2, diag = (opaque_padded[i] for i in idx)
         occ = s1.astype(np.int32) + s2 + diag
         val = 3 - occ
         # Both edge neighbours solid -> corner fully occluded regardless.
         val[s1 & s2] = 0
         ao[:, corner] = val.astype(_U32)
-    return ao
+
+        sky_sum = front_sky + sky_padded[idx[0]] + sky_padded[idx[1]] + sky_padded[idx[2]]
+        blk_sum = front_blk + blk_padded[idx[0]] + blk_padded[idx[1]] + blk_padded[idx[2]]
+        sky[:, corner] = (sky_sum // 4).astype(_U32)
+        blk[:, corner] = (blk_sum // 4).astype(_U32)
+    return ao, sky, blk
 
 
-def build_chunk_meshes(padded: np.ndarray, registry: BlockRegistry) -> ChunkMeshData:
-    """Build render streams for one chunk from its padded block snapshot."""
+def build_chunk_meshes(
+    mesh_input: tuple[np.ndarray, np.ndarray, np.ndarray], registry: BlockRegistry
+) -> ChunkMeshData:
+    """Build render streams for one chunk from its padded snapshots."""
+    padded, sky_padded, blk_padded = mesh_input
     core = padded[1:-1, 1:-1, 1:-1]
     render = registry.render[core]
     opaque_padded = registry.opaque[padded]
@@ -143,6 +174,12 @@ def build_chunk_meshes(padded: np.ndarray, registry: BlockRegistry) -> ChunkMesh
     opaque_parts: list[np.ndarray] = []
     cutout_parts: list[np.ndarray] = []
     water_parts: list[np.ndarray] = []
+    y_lo, y_hi = CHUNK_Y, 0
+
+    def _track_y(ys: np.ndarray) -> None:
+        nonlocal y_lo, y_hi
+        y_lo = min(y_lo, int(ys.min()))
+        y_hi = max(y_hi, int(ys.max()) + 1)
 
     # Liquid surface flag: top edge is lowered unless the same liquid sits above.
     above = _neighbour_view(padded, 0, 0, 1)
@@ -157,11 +194,14 @@ def build_chunk_meshes(padded: np.ndarray, registry: BlockRegistry) -> ChunkMesh
         vis = solid_mask & ~nb_opaque
         if vis.any():
             xs, zs, ys = np.nonzero(vis)
+            _track_y(ys)
             ids = core[vis]
+            ao, sky, blk = _corner_shading(
+                opaque_padded, sky_padded, blk_padded, xs, zs, ys, face
+            )
             opaque_parts.append(
                 _pack_faces(
-                    xs, zs, ys, face,
-                    _corner_ao(opaque_padded, xs, zs, ys, face),
+                    xs, zs, ys, face, ao, sky, blk,
                     registry.face_layers[ids, face],
                     registry.emission[ids],
                 )
@@ -171,26 +211,37 @@ def build_chunk_meshes(padded: np.ndarray, registry: BlockRegistry) -> ChunkMesh
         vis = cutout_mask & ~nb_opaque & ~same_as_nb
         if vis.any():
             xs, zs, ys = np.nonzero(vis)
+            _track_y(ys)
             ids = core[vis]
+            ao, sky, blk = _corner_shading(
+                opaque_padded, sky_padded, blk_padded, xs, zs, ys, face
+            )
             cutout_parts.append(
                 _pack_faces(
-                    xs, zs, ys, face,
-                    _corner_ao(opaque_padded, xs, zs, ys, face),
+                    xs, zs, ys, face, ao, sky, blk,
                     registry.face_layers[ids, face],
                     registry.emission[ids],
                 )
             )
 
-        # Liquids: no AO (avoids dark seams on the water surface).
+        # Liquids: flat light from the cell itself, no AO (avoids dark seams).
         vis = liquid_mask & ~nb_opaque & ~same_as_nb
         if vis.any():
             xs, zs, ys = np.nonzero(vis)
+            _track_y(ys)
             ids = core[vis]
             n = len(xs)
+            own = (xs + 1, zs + 1, ys + 1)
+            sky = np.broadcast_to(
+                sky_padded[own].astype(_U32)[:, None], (n, 4)
+            )
+            blk = np.broadcast_to(
+                blk_padded[own].astype(_U32)[:, None], (n, 4)
+            )
             water_parts.append(
                 _pack_faces(
                     xs, zs, ys, face,
-                    np.full((n, 4), 3, dtype=_U32),
+                    np.full((n, 4), 3, dtype=_U32), sky, blk,
                     registry.face_layers[ids, face],
                     registry.emission[ids],
                     flags=liquid_surface[vis].astype(_U32),
@@ -202,13 +253,17 @@ def build_chunk_meshes(padded: np.ndarray, registry: BlockRegistry) -> ChunkMesh
     cross = render == RENDER_CROSS
     if cross.any():
         xs, zs, ys = np.nonzero(cross)
+        _track_y(ys)
         ids = core[cross]
         n = len(xs)
+        own = (xs + 1, zs + 1, ys + 1)
         ao = np.full((n, 4), 3, dtype=_U32)
+        sky = np.broadcast_to(sky_padded[own].astype(_U32)[:, None], (n, 4))
+        blk = np.broadcast_to(blk_padded[own].astype(_U32)[:, None], (n, 4))
         for face in (6, 7):
             cutout_parts.append(
                 _pack_faces(
-                    xs, zs, ys, face, ao,
+                    xs, zs, ys, face, ao, sky, blk,
                     registry.face_layers[ids, 0],
                     registry.emission[ids],
                 )
@@ -219,8 +274,12 @@ def build_chunk_meshes(padded: np.ndarray, registry: BlockRegistry) -> ChunkMesh
             return None
         return parts[0] if len(parts) == 1 else np.concatenate(parts)
 
+    if y_hi <= y_lo:  # empty chunk mesh
+        y_lo, y_hi = 0, 1
     return ChunkMeshData(
         opaque=_concat(opaque_parts),
         cutout=_concat(cutout_parts),
         water=_concat(water_parts),
+        y_min=max(y_lo - 1, 0),
+        y_max=min(y_hi + 1, CHUNK_Y),
     )

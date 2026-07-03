@@ -4,8 +4,9 @@ The chunk/water vertex shaders decode the compressed 8-byte vertex format
 (see cubegeom.py) and read geometry from constant tables *generated* from
 the same Python data the mesher uses — one source of truth.
 
-Terrain lighting is computed per-vertex (faces are flat, so per-fragment
-would buy nothing); AO interpolates across the face for smooth corners.
+Lighting model: per-vertex smooth sky/block light baked by the mesher,
+combined per-fragment as ``max(sky * daylight, warm * block)`` with a gamma
+curve — bright days, warm torch pools at night, genuinely dark caves.
 """
 
 from __future__ import annotations
@@ -28,13 +29,29 @@ _VERTEX_DECODE = """
     vec3 corner_off = FACE_CORNERS[idx];
     uint tex_layer = w1 & 65535u;
     float emission = float((w1 >> 16u) & 15u) / 15.0;
+    float sky_raw = float((w1 >> 20u) & 15u) / 15.0;
+    float blk_raw = float((w1 >> 24u) & 15u) / 15.0;
 """
 
-_LIGHT_CALC = """
-    float diff = max(dot(FACE_NORMALS[face], u_sun_dir), 0.0);
-    float sky = u_daylight * (0.35 + 0.65 * diff);
-    float light = clamp(0.16 + sky, 0.0, 1.0) * FACE_SHADE[face];
-    v_light = max(light, emission);
+# Directional shade: classic voxel face shading plus a subtle sun-facing
+# boost so mornings/evenings read as directional without shadow maps.
+_SHADE_CALC = """
+    float sun_face = max(dot(FACE_NORMALS[face], u_sun_dir), 0.0);
+    v_shade = FACE_SHADE[face] * (0.86 + 0.14 * sun_face * u_daylight);
+    v_sky = sky_raw;
+    v_blk = blk_raw;
+    v_emission = emission;
+"""
+
+# Shared fragment light combine (expects v_sky, v_blk, v_emission inputs
+# and u_daylight uniform). Block light is warm; sky light follows daylight.
+_LIGHT_COMBINE = """
+    float sky_scale = mix(0.06, 1.0, u_daylight);
+    float sl = pow(v_sky, 1.5) * sky_scale;
+    float bl = pow(v_blk, 1.5);
+    vec3 light = max(vec3(sl), vec3(1.0, 0.82, 0.58) * bl);
+    light = max(light, vec3(0.032));
+    light = max(light, vec3(v_emission));
 """
 
 CHUNK_VERT = f"""#version 330
@@ -49,7 +66,10 @@ in uvec2 in_data;
 out vec3 v_world;
 out vec2 v_uv;
 out float v_ao;
-out float v_light;
+out float v_sky;
+out float v_blk;
+out float v_shade;
+out float v_emission;
 flat out uint v_layer;
 
 {_TABLES}
@@ -67,7 +87,7 @@ void main() {{
     v_uv = FACE_UVS[idx];
     v_layer = tex_layer;
     v_ao = float(ao_bits) / 3.0;
-{_LIGHT_CALC}
+{_SHADE_CALC}
     gl_Position = u_view_proj * vec4(world, 1.0);
 }}
 """
@@ -77,12 +97,16 @@ uniform sampler2DArray u_tiles;
 uniform vec3 u_fog_color;
 uniform vec2 u_fog_range;
 uniform vec3 u_camera_pos;
+uniform float u_daylight;
 uniform bool u_alpha_test;
 
 in vec3 v_world;
 in vec2 v_uv;
 in float v_ao;
-in float v_light;
+in float v_sky;
+in float v_blk;
+in float v_shade;
+in float v_emission;
 flat in uint v_layer;
 
 out vec4 f_color;
@@ -90,8 +114,9 @@ out vec4 f_color;
 void main() {
     vec4 tex = texture(u_tiles, vec3(v_uv, float(v_layer)));
     if (u_alpha_test && tex.a < 0.5) discard;
-    float ao = mix(0.52, 1.0, v_ao);
-    vec3 color = tex.rgb * (v_light * ao);
+""" + _LIGHT_COMBINE + """
+    float ao = mix(0.55, 1.0, v_ao);
+    vec3 color = tex.rgb * light * (v_shade * ao);
     float dist = length(v_world - u_camera_pos);
     float fog = smoothstep(u_fog_range.x, u_fog_range.y, dist);
     f_color = vec4(mix(color, u_fog_color, fog), 1.0);
@@ -109,7 +134,10 @@ in uvec2 in_data;
 
 out vec3 v_world;
 out vec2 v_uv;
-out float v_light;
+out float v_sky;
+out float v_blk;
+out float v_shade;
+out float v_emission;
 flat out uint v_layer;
 
 {_TABLES}
@@ -126,7 +154,7 @@ void main() {{
     v_world = world;
     v_uv = FACE_UVS[idx];
     v_layer = tex_layer;
-{_LIGHT_CALC}
+{_SHADE_CALC}
     gl_Position = u_view_proj * vec4(world, 1.0);
 }}
 """
@@ -136,18 +164,23 @@ uniform sampler2DArray u_tiles;
 uniform vec3 u_fog_color;
 uniform vec2 u_fog_range;
 uniform vec3 u_camera_pos;
+uniform float u_daylight;
 uniform float u_alpha;
 
 in vec3 v_world;
 in vec2 v_uv;
-in float v_light;
+in float v_sky;
+in float v_blk;
+in float v_shade;
+in float v_emission;
 flat in uint v_layer;
 
 out vec4 f_color;
 
 void main() {
     vec4 tex = texture(u_tiles, vec3(v_uv, float(v_layer)));
-    vec3 color = tex.rgb * v_light;
+""" + _LIGHT_COMBINE + """
+    vec3 color = tex.rgb * light * v_shade;
     float dist = length(v_world - u_camera_pos);
     float fog = smoothstep(u_fog_range.x, u_fog_range.y, dist);
     f_color = vec4(mix(color, u_fog_color, fog), u_alpha);
@@ -199,6 +232,10 @@ void main() {
     float glow = pow(sun_dot, 9.0) * 0.24;
     col += (disc + glow) * vec3(1.0, 0.88, 0.68) * max(u_daylight, 0.06);
 
+    // Moon: small cold disc opposite the sun.
+    float moon_dot = max(dot(dir, -u_sun_dir), 0.0);
+    col += pow(moon_dot, 2400.0) * vec3(0.75, 0.78, 0.85) * (1.0 - u_daylight);
+
     // Sparse hash-based starfield fades in at night.
     if (u_daylight < 0.5 && up > 0.02) {
         vec3 cell = floor(dir * 110.0);
@@ -206,6 +243,37 @@ void main() {
         col += star * (0.5 - u_daylight) * 1.6;
     }
     f_color = vec4(col, 1.0);
+}
+"""
+
+CLOUD_VERT = """#version 330
+uniform mat4 u_view_proj;
+uniform vec3 u_cloud_origin;
+
+in vec2 in_pos;
+
+out vec3 v_world;
+
+void main() {
+    v_world = vec3(in_pos.x, 0.0, in_pos.y) + u_cloud_origin;
+    gl_Position = u_view_proj * vec4(v_world, 1.0);
+}
+"""
+
+CLOUD_FRAG = """#version 330
+uniform vec3 u_fog_color;
+uniform vec2 u_fog_range;
+uniform vec3 u_camera_pos;
+uniform float u_daylight;
+
+in vec3 v_world;
+out vec4 f_color;
+
+void main() {
+    vec3 color = vec3(mix(0.08, 1.0, u_daylight));
+    float dist = length(v_world - u_camera_pos);
+    float fog = smoothstep(u_fog_range.x, u_fog_range.y, dist);
+    f_color = vec4(mix(color, u_fog_color, fog), 0.55 * (1.0 - fog * 0.6));
 }
 """
 

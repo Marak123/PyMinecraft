@@ -50,6 +50,9 @@ class BlockDef:
     breakable: bool = True
     replaceable: bool = False
     emission: int = 0
+    hardness: float = 1.0  # seconds to break in survival mode
+    light_attenuation: int = 0  # extra light decay per block entered
+    needs_support: bool = False  # must stand on a solid block (plants, torch)
     textures: dict[str, str] = field(default_factory=dict)
 
     def face_tile(self, face: int) -> str | None:
@@ -74,6 +77,9 @@ class BlockRegistry:
         self.render = np.zeros(n, dtype=np.uint8)
         self.emission = np.zeros(n, dtype=np.uint8)
         self.replaceable = np.zeros(n, dtype=bool)
+        self.hardness = np.ones(n, dtype=np.float32)
+        self.light_attenuation = np.zeros(n, dtype=np.uint8)
+        self.needs_support = np.zeros(n, dtype=bool)
         # Texture layer per (block, face); filled by assign_texture_layers().
         self.face_layers = np.zeros((n, 6), dtype=np.uint16)
 
@@ -83,6 +89,9 @@ class BlockRegistry:
             self.render[d.id] = d.render
             self.emission[d.id] = d.emission
             self.replaceable[d.id] = d.replaceable
+            self.hardness[d.id] = d.hardness
+            self.light_attenuation[d.id] = d.light_attenuation
+            self.needs_support[d.id] = d.needs_support
 
     @classmethod
     def load(cls, path: Path) -> "BlockRegistry":
@@ -100,6 +109,9 @@ class BlockRegistry:
                     breakable=bool(entry.get("breakable", True)),
                     replaceable=bool(entry.get("replaceable", False)),
                     emission=int(entry.get("emission", 0)),
+                    hardness=float(entry.get("hardness", 1.0)),
+                    light_attenuation=int(entry.get("light_attenuation", 0)),
+                    needs_support=bool(entry.get("needs_support", False)),
                     textures=dict(entry.get("textures", {})),
                 )
             )

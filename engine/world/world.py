@@ -56,11 +56,9 @@ class World:
         self.chunks[chunk.key] = chunk
 
     def remove_chunk(self, cx: int, cz: int) -> Chunk | None:
-        chunk = self.chunks.pop((cx, cz), None)
-        if chunk is not None and chunk.modified:
-            self.storage.save_chunk(cx, cz, chunk.blocks)
-            chunk.modified = False
-        return chunk
+        """Detach a chunk. The caller owns persisting it if modified —
+        the streamer pushes that I/O onto the worker pool."""
+        return self.chunks.pop((cx, cz), None)
 
     def save_all_modified(self) -> int:
         count = 0
@@ -120,32 +118,130 @@ class World:
                 if nkey in self.chunks:
                     self.dirty_chunks.add(nkey)
 
-    # -- meshing support ------------------------------------------------------------
-    def build_padded_blocks(self, cx: int, cz: int) -> np.ndarray | None:
-        """Chunk blocks padded by 1 in every axis with real neighbour data.
+    # -- lighting support ------------------------------------------------------------
+    def has_lit_neighbourhood(self, cx: int, cz: int) -> bool:
+        """True when the chunk and all 8 neighbours have light computed."""
+        for dx in (-1, 0, 1):
+            for dz in (-1, 0, 1):
+                chunk = self.chunks.get((cx + dx, cz + dz))
+                if chunk is None or not chunk.has_light:
+                    return False
+        return True
 
-        The mesher needs this halo for face visibility and AO at borders.
-        Returns None if any of the 8 horizontal neighbours is missing.
+    def build_light_window(self, cx: int, cz: int) -> np.ndarray | None:
+        """3x3-chunk block snapshot for the lighting job (48x48xY).
+
+        Light travels at most 15 blocks, so this window yields exact light
+        for the centre chunk. Returns None if any neighbour is missing.
+        """
+        if (cx, cz) not in self.chunks or not self.has_all_neighbours(cx, cz):
+            return None
+        window = np.empty((CHUNK_X * 3, CHUNK_Z * 3, CHUNK_Y), dtype=np.uint8)
+        for dx in (-1, 0, 1):
+            for dz in (-1, 0, 1):
+                window[
+                    (dx + 1) * CHUNK_X : (dx + 2) * CHUNK_X,
+                    (dz + 1) * CHUNK_Z : (dz + 2) * CHUNK_Z,
+                    :,
+                ] = self.chunks[(cx + dx, cz + dz)].blocks
+        return window
+
+    # -- box copy/write (edit relighting) ---------------------------------------------
+    def _overlapping_chunks(self, x0: int, x1: int, z0: int, z1: int):
+        for ccx in range(x0 >> 4, ((x1 - 1) >> 4) + 1):
+            for ccz in range(z0 >> 4, ((z1 - 1) >> 4) + 1):
+                # Intersection of the box with this chunk, in both spaces.
+                wx0 = max(x0, ccx * CHUNK_X)
+                wx1 = min(x1, (ccx + 1) * CHUNK_X)
+                wz0 = max(z0, ccz * CHUNK_Z)
+                wz1 = min(z1, (ccz + 1) * CHUNK_Z)
+                box = (slice(wx0 - x0, wx1 - x0), slice(wz0 - z0, wz1 - z0))
+                local = (slice(wx0 - ccx * CHUNK_X, wx1 - ccx * CHUNK_X),
+                         slice(wz0 - ccz * CHUNK_Z, wz1 - ccz * CHUNK_Z))
+                yield (ccx, ccz), box, local
+
+    def copy_block_box(
+        self, x0: int, x1: int, y0: int, y1: int, z0: int, z1: int
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Blocks in a world-space box + validity mask (False = unloaded)."""
+        blocks = np.zeros((x1 - x0, z1 - z0, y1 - y0), dtype=np.uint8)
+        valid = np.zeros(blocks.shape, dtype=bool)
+        ys = slice(y0, y1)
+        for key, box, local in self._overlapping_chunks(x0, x1, z0, z1):
+            chunk = self.chunks.get(key)
+            if chunk is None:
+                continue
+            blocks[box[0], box[1], :] = chunk.blocks[local[0], local[1], ys]
+            valid[box[0], box[1], :] = True
+        return blocks, valid
+
+    def copy_light_box(
+        self, x0: int, x1: int, y0: int, y1: int, z0: int, z1: int
+    ) -> tuple[np.ndarray, np.ndarray]:
+        sky = np.zeros((x1 - x0, z1 - z0, y1 - y0), dtype=np.uint8)
+        blk = np.zeros(sky.shape, dtype=np.uint8)
+        ys = slice(y0, y1)
+        for key, box, local in self._overlapping_chunks(x0, x1, z0, z1):
+            chunk = self.chunks.get(key)
+            if chunk is None or not chunk.has_light:
+                continue
+            sky[box[0], box[1], :] = chunk.sky_light[local[0], local[1], ys]
+            blk[box[0], box[1], :] = chunk.block_light[local[0], local[1], ys]
+        return sky, blk
+
+    def write_light_box(
+        self,
+        x0: int, x1: int, y0: int, y1: int, z0: int, z1: int,
+        sky: np.ndarray, blk: np.ndarray, changed: np.ndarray,
+    ) -> set[tuple[int, int]]:
+        """Apply changed light cells back to chunk storage.
+
+        Returns the keys of chunks that actually changed (need remeshing).
+        """
+        touched: set[tuple[int, int]] = set()
+        ys = slice(y0, y1)
+        for key, box, local in self._overlapping_chunks(x0, x1, z0, z1):
+            chunk = self.chunks.get(key)
+            if chunk is None or not chunk.has_light:
+                continue
+            mask = changed[box[0], box[1], :]
+            if not mask.any():
+                continue
+            chunk.sky_light[local[0], local[1], ys][mask] = sky[box[0], box[1], :][mask]
+            chunk.block_light[local[0], local[1], ys][mask] = blk[box[0], box[1], :][mask]
+            touched.add(key)
+        return touched
+
+    # -- meshing support ------------------------------------------------------------
+    def build_mesh_input(
+        self, cx: int, cz: int
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
+        """Padded (blocks, sky_light, block_light) snapshot for the mesher.
+
+        The 1-block halo is needed for border face visibility, AO and smooth
+        light. Returns None until all 8 neighbours exist *and* are lit.
         """
         chunk = self.chunks.get((cx, cz))
-        if chunk is None or not self.has_all_neighbours(cx, cz):
+        if chunk is None or not chunk.has_light or not self.has_lit_neighbourhood(cx, cz):
             return None
 
-        padded = np.zeros((CHUNK_X + 2, CHUNK_Z + 2, CHUNK_Y + 2), dtype=np.uint8)
-        padded[1:-1, 1:-1, 1:-1] = chunk.blocks
+        shape = (CHUNK_X + 2, CHUNK_Z + 2, CHUNK_Y + 2)
+        blocks = np.zeros(shape, dtype=np.uint8)
+        sky = np.zeros(shape, dtype=np.uint8)
+        blk = np.zeros(shape, dtype=np.uint8)
         # Below-world counts as solid rock (culls downward faces of bedrock);
-        # above-world stays AIR.
-        padded[:, :, 0] = self.registry.id_of("bedrock")
+        # above-world stays AIR with full skylight.
+        blocks[:, :, 0] = self.registry.id_of("bedrock")
+        sky[:, :, -1] = 15
 
-        neighbours = {
-            (dx, dz): self.chunks[(cx + dx, cz + dz)].blocks for dx, dz in NEIGHBOURS_8
-        }
-        padded[0, 1:-1, 1:-1] = neighbours[(-1, 0)][-1, :, :]
-        padded[-1, 1:-1, 1:-1] = neighbours[(1, 0)][0, :, :]
-        padded[1:-1, 0, 1:-1] = neighbours[(0, -1)][:, -1, :]
-        padded[1:-1, -1, 1:-1] = neighbours[(0, 1)][:, 0, :]
-        padded[0, 0, 1:-1] = neighbours[(-1, -1)][-1, -1, :]
-        padded[0, -1, 1:-1] = neighbours[(-1, 1)][-1, 0, :]
-        padded[-1, 0, 1:-1] = neighbours[(1, -1)][0, -1, :]
-        padded[-1, -1, 1:-1] = neighbours[(1, 1)][0, 0, :]
-        return padded
+        # Source region per neighbour offset -> destination slices in the pad.
+        for dx, dz in ((0, 0), *NEIGHBOURS_8):
+            neighbour = self.chunks[(cx + dx, cz + dz)]
+            sx = slice(1, -1) if dx == 0 else (slice(0, 1) if dx == -1 else slice(-1, None))
+            sz = slice(1, -1) if dz == 0 else (slice(0, 1) if dz == -1 else slice(-1, None))
+            nx = slice(None) if dx == 0 else (slice(-1, None) if dx == -1 else slice(0, 1))
+            nz = slice(None) if dz == 0 else (slice(-1, None) if dz == -1 else slice(0, 1))
+            blocks[sx, sz, 1:-1] = neighbour.blocks[nx, nz, :]
+            sky[sx, sz, 1:-1] = neighbour.sky_light[nx, nz, :]
+            blk[sx, sz, 1:-1] = neighbour.block_light[nx, nz, :]
+        return blocks, sky, blk

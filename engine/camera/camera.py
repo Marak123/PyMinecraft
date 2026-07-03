@@ -25,6 +25,12 @@ class Camera:
             self._aspect = aspect
             self._proj = mathx.perspective(self.fov, aspect, self.near, self.far)
 
+    def set_fov(self, fov: float) -> None:
+        """Runtime FOV change (sprint kick). Cheap: one matrix rebuild."""
+        if abs(fov - self.fov) > 1e-3:
+            self.fov = fov
+            self._proj = mathx.perspective(fov, self._aspect, self.near, self.far)
+
     def rotate(self, d_yaw: float, d_pitch: float) -> None:
         self.yaw = (self.yaw + d_yaw) % 360.0
         # Hard pitch clamp: looking exactly straight up/down degenerates look_at.

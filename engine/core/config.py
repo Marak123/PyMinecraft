@@ -17,14 +17,14 @@ _log = get_logger("config")
 
 DEFAULT_HOTBAR = [
     "grass_block",
-    "dirt",
     "stone",
     "cobblestone",
     "oak_planks",
     "oak_log",
-    "oak_leaves",
     "glass",
-    "sand",
+    "bricks",
+    "glowstone",
+    "torch",
 ]
 
 
