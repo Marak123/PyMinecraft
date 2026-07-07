@@ -5,12 +5,21 @@
 ![License](https://img.shields.io/badge/License-MIT-yellow)
 
 A voxel sandbox game with a custom Python engine built on
-**ModernGL + GLFW + NumPy**. Infinite procedural worlds with biomes, caves,
-ores, trees and scattered ruins, flood-fill lighting with real voxel shadows
-and warm torch light, survival mode with health, inventory and crafting,
-wandering mobs, rain spells, a third-person view, a day/night cycle with
-clouds and stars. Zero external assets — every texture is generated
-procedurally at startup (32x32).
+**ModernGL + GLFW + NumPy**, developed against a 10-phase master plan
+([`docs/plan/`](docs/plan/00_overview_and_priorities.md)).
+
+Infinite 256-tall procedural worlds with 13 biomes, rivers, ravines, caves
+and ore veins; villages, dungeons and mineshafts; a **Nether dimension**
+reached through obsidian portals. A multi-pass renderer with **HDR,
+cascaded shadow maps, bloom and simplified voxel PBR** (procedural normal +
+material maps). Flood-fill lighting with real voxel shadows and warm torch
+light. **Flowing water and lava** with a cellular-automata fluid sim.
+Survival with health, **hunger**, an inventory, **shaped crafting**,
+**tools with tiers**, and eating. An **ECS** driving 8 mob types with
+behaviour-tree AI (passive animals + hostile zombies, skeletons, creepers,
+spiders). A **particle system**, procedural audio, rain, a third-person
+view (F5), clouds and stars. Zero external assets — every texture is
+generated procedurally at startup (64×64 with PBR maps).
 
 ## Quick start
 
@@ -33,23 +42,28 @@ Requirements: Python 3.12+ and a GPU with OpenGL 3.3 (practically any).
 | `Left Shift` | sneak — you cannot fall off edges / (while flying) descend |
 | `F` | toggle flying (creative mode only) |
 | `F4` | switch survival / creative mode |
-| `LMB` | break block (hold to dig in survival) / attack mobs |
-| `RMB` | place block (consumes from inventory in survival) |
+| `LMB` | break block (hold to dig; tools dig faster) / attack mobs |
+| `RMB` | place block / **eat** held food |
 | `MMB` | pick targeted block |
 | `1–9` / mouse wheel | select hotbar slot |
 | `E` | inventory & crafting (survival) / block picker (creative) |
-| `F5` | first / third person view |
-| `F11` | fullscreen toggle |
-| `F3` | debug overlay (FPS, chunk stats, stage timings) |
-| `F2` | screenshot to `screenshots/` |
-| `ESC` | pause + settings menu (render distance, FOV, vsync...) |
+| `G` | ignite a nether portal (looking at an obsidian frame) |
+| `F` | fly (creative) &nbsp;·&nbsp; `F4` survival/creative &nbsp;·&nbsp; `F5` third person |
+| `F11` | fullscreen &nbsp;·&nbsp; `F3` debug overlay &nbsp;·&nbsp; `F2` screenshot |
+| `ESC` | pause + settings (render distance, FOV, vsync, shadows, bloom…) |
 
-Survival mode: 10 hearts, fall damage, drowning, lava damage, regeneration,
-death & respawn; mined blocks drop into a 36-slot inventory and placing
-consumes them; shapeless recipes (`configs/recipes.json`) craft planks,
-torches, glass, bricks and more. Creative mode: flying, instant breaking,
-no damage, full block picker. Pigs wander the plains; ruined towers with
-torches dot the world; rain rolls through now and then.
+**Survival:** 10 hearts + 10 hunger drumsticks. Fall/lava/drowning damage,
+starvation, regeneration when well-fed. Mined blocks (and slain mobs) drop
+items you walk over to collect. Craft planks → sticks → tools; better tool
+tiers mine faster and unlock harder ores. Eat apples and meat. Fight hostile
+mobs that spawn in the dark. Build an obsidian frame and ignite it (`G`) to
+travel to the **Nether**.
+
+**Creative:** flying, instant breaking, no damage, full item picker.
+
+Performance: ~45–55 FPS at render distance 8 with every effect on (RTX 3050
+laptop); toggle shadows or bloom in the pause menu for a locked 60. See
+[`docs/ROADMAP.md`](docs/ROADMAP.md) for the phase-by-phase status.
 
 The world saves automatically on exit (modified chunks only) to
 `saves/world/`. Settings (resolution, render distance, FOV, mouse

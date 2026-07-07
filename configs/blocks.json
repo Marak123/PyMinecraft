@@ -1,41 +1,1324 @@
 {
   "comment": "Data-driven block definitions. render: solid | cutout | cross | liquid | none. hardness = seconds to break in survival. light_attenuation = extra light decay per block entered. Textures reference tile names from the procedural atlas; faces: all / top / bottom / side.",
   "blocks": [
-    { "id": 0,  "name": "air",           "label": "Air",           "render": "none",   "solid": false, "opaque": false, "breakable": false, "replaceable": true },
-    { "id": 1,  "name": "bedrock",       "label": "Bedrock",       "render": "solid",  "solid": true,  "opaque": true,  "breakable": false, "textures": { "all": "bedrock" } },
-    { "id": 2,  "name": "stone",         "label": "Stone",         "render": "solid",  "solid": true,  "opaque": true,  "hardness": 1.6, "drops": "cobblestone", "textures": { "all": "stone" } },
-    { "id": 3,  "name": "dirt",          "label": "Dirt",          "render": "solid",  "solid": true,  "opaque": true,  "hardness": 0.5, "textures": { "all": "dirt" } },
-    { "id": 4,  "name": "grass_block",   "label": "Grass",         "render": "solid",  "solid": true,  "opaque": true,  "hardness": 0.6, "drops": "dirt", "textures": { "top": "grass_top", "bottom": "dirt", "side": "grass_side" } },
-    { "id": 5,  "name": "sand",          "label": "Sand",          "render": "solid",  "solid": true,  "opaque": true,  "hardness": 0.5, "textures": { "all": "sand" } },
-    { "id": 6,  "name": "gravel",        "label": "Gravel",        "render": "solid",  "solid": true,  "opaque": true,  "hardness": 0.6, "textures": { "all": "gravel" } },
-    { "id": 7,  "name": "water",         "label": "Water",         "render": "liquid", "solid": false, "opaque": false, "breakable": false, "replaceable": true, "light_attenuation": 2, "textures": { "all": "water" } },
-    { "id": 8,  "name": "lava",          "label": "Lava",          "render": "liquid", "solid": false, "opaque": false, "breakable": false, "replaceable": true, "emission": 14, "light_attenuation": 2, "textures": { "all": "lava" } },
-    { "id": 9,  "name": "oak_log",       "label": "Oak Log",       "render": "solid",  "solid": true,  "opaque": true,  "hardness": 1.2, "textures": { "top": "log_top", "bottom": "log_top", "side": "log_side" } },
-    { "id": 10, "name": "oak_leaves",    "label": "Oak Leaves",    "render": "cutout", "solid": true,  "opaque": false, "hardness": 0.25, "light_attenuation": 1, "drops": "none", "textures": { "all": "leaves" } },
-    { "id": 11, "name": "oak_planks",    "label": "Oak Planks",    "render": "solid",  "solid": true,  "opaque": true,  "hardness": 1.2, "textures": { "all": "planks" } },
-    { "id": 12, "name": "cobblestone",   "label": "Cobblestone",   "render": "solid",  "solid": true,  "opaque": true,  "hardness": 1.7, "textures": { "all": "cobble" } },
-    { "id": 13, "name": "snowy_grass",   "label": "Snowy Grass",   "render": "solid",  "solid": true,  "opaque": true,  "hardness": 0.6, "drops": "dirt", "textures": { "top": "snow", "bottom": "dirt", "side": "snow_side" } },
-    { "id": 14, "name": "snow_block",    "label": "Snow",          "render": "solid",  "solid": true,  "opaque": true,  "hardness": 0.4, "textures": { "all": "snow" } },
-    { "id": 15, "name": "sandstone",     "label": "Sandstone",     "render": "solid",  "solid": true,  "opaque": true,  "hardness": 1.4, "textures": { "all": "sandstone" } },
-    { "id": 16, "name": "coal_ore",      "label": "Coal Ore",      "render": "solid",  "solid": true,  "opaque": true,  "hardness": 2.2, "textures": { "all": "coal_ore" } },
-    { "id": 17, "name": "iron_ore",      "label": "Iron Ore",      "render": "solid",  "solid": true,  "opaque": true,  "hardness": 2.6, "textures": { "all": "iron_ore" } },
-    { "id": 18, "name": "gold_ore",      "label": "Gold Ore",      "render": "solid",  "solid": true,  "opaque": true,  "hardness": 2.6, "textures": { "all": "gold_ore" } },
-    { "id": 19, "name": "diamond_ore",   "label": "Diamond Ore",   "render": "solid",  "solid": true,  "opaque": true,  "hardness": 3.0, "textures": { "all": "diamond_ore" } },
-    { "id": 20, "name": "glass",         "label": "Glass",         "render": "cutout", "solid": true,  "opaque": false, "hardness": 0.4, "drops": "none", "textures": { "all": "glass" } },
-    { "id": 21, "name": "tall_grass",    "label": "Tall Grass",    "render": "cross",  "solid": false, "opaque": false, "replaceable": true, "hardness": 0.05, "needs_support": true, "drops": "none", "textures": { "all": "tall_grass" } },
-    { "id": 22, "name": "flower_red",    "label": "Poppy",         "render": "cross",  "solid": false, "opaque": false, "replaceable": true, "hardness": 0.05, "needs_support": true, "textures": { "all": "flower_red" } },
-    { "id": 23, "name": "flower_yellow", "label": "Dandelion",     "render": "cross",  "solid": false, "opaque": false, "replaceable": true, "hardness": 0.05, "needs_support": true, "textures": { "all": "flower_yellow" } },
-    { "id": 24, "name": "torch",         "label": "Torch",         "render": "cross",  "solid": false, "opaque": false, "hardness": 0.05, "emission": 14, "needs_support": true, "textures": { "all": "torch" } },
-    { "id": 25, "name": "glowstone",     "label": "Glowstone",     "render": "solid",  "solid": true,  "opaque": true,  "hardness": 0.6, "emission": 15, "textures": { "all": "glowstone" } },
-    { "id": 26, "name": "birch_log",     "label": "Birch Log",     "render": "solid",  "solid": true,  "opaque": true,  "hardness": 1.2, "textures": { "top": "log_top", "bottom": "log_top", "side": "birch_log_side" } },
-    { "id": 27, "name": "birch_leaves",  "label": "Birch Leaves",  "render": "cutout", "solid": true,  "opaque": false, "hardness": 0.25, "light_attenuation": 1, "drops": "none", "textures": { "all": "birch_leaves" } },
-    { "id": 28, "name": "dead_bush",     "label": "Dead Bush",     "render": "cross",  "solid": false, "opaque": false, "replaceable": true, "hardness": 0.05, "needs_support": true, "textures": { "all": "dead_bush" } },
-    { "id": 29, "name": "mushroom_red",  "label": "Red Mushroom",  "render": "cross",  "solid": false, "opaque": false, "replaceable": true, "hardness": 0.05, "needs_support": true, "textures": { "all": "mushroom_red" } },
-    { "id": 30, "name": "mushroom_brown","label": "Brown Mushroom","render": "cross",  "solid": false, "opaque": false, "replaceable": true, "hardness": 0.05, "needs_support": true, "textures": { "all": "mushroom_brown" } },
-    { "id": 31, "name": "bricks",        "label": "Bricks",        "render": "solid",  "solid": true,  "opaque": true,  "hardness": 1.8, "textures": { "all": "bricks" } },
-    { "id": 32, "name": "stone_bricks",  "label": "Stone Bricks",  "render": "solid",  "solid": true,  "opaque": true,  "hardness": 1.8, "textures": { "all": "stone_bricks" } },
-    { "id": 33, "name": "mossy_cobblestone", "label": "Mossy Cobblestone", "render": "solid", "solid": true, "opaque": true, "hardness": 1.7, "textures": { "all": "mossy_cobble" } },
-    { "id": 34, "name": "crafting_table","label": "Crafting Table","render": "solid",  "solid": true,  "opaque": true,  "hardness": 1.0, "textures": { "top": "crafting_table_top", "bottom": "planks", "side": "crafting_table_side" } },
-    { "id": 35, "name": "bookshelf",     "label": "Bookshelf",     "render": "solid",  "solid": true,  "opaque": true,  "hardness": 1.0, "drops": "oak_planks", "textures": { "top": "planks", "bottom": "planks", "side": "bookshelf" } }
+    {
+      "id": 0,
+      "name": "air",
+      "label": "Air",
+      "render": "none",
+      "solid": false,
+      "opaque": false,
+      "breakable": false,
+      "replaceable": true
+    },
+    {
+      "id": 1,
+      "name": "bedrock",
+      "label": "Bedrock",
+      "render": "solid",
+      "solid": true,
+      "opaque": true,
+      "breakable": false,
+      "textures": {
+        "all": "bedrock"
+      }
+    },
+    {
+      "id": 2,
+      "name": "stone",
+      "label": "Stone",
+      "render": "solid",
+      "solid": true,
+      "opaque": true,
+      "hardness": 1.6,
+      "drops": "cobblestone",
+      "mined_by": "pickaxe",
+      "textures": {
+        "all": "stone"
+      }
+    },
+    {
+      "id": 3,
+      "name": "dirt",
+      "label": "Dirt",
+      "render": "solid",
+      "solid": true,
+      "opaque": true,
+      "hardness": 0.5,
+      "textures": {
+        "all": "dirt"
+      },
+      "mined_by": "shovel"
+    },
+    {
+      "id": 4,
+      "name": "grass_block",
+      "label": "Grass",
+      "render": "solid",
+      "solid": true,
+      "opaque": true,
+      "hardness": 0.6,
+      "drops": "dirt",
+      "textures": {
+        "top": "grass_top",
+        "bottom": "dirt",
+        "side": "grass_side"
+      },
+      "mined_by": "shovel"
+    },
+    {
+      "id": 5,
+      "name": "sand",
+      "label": "Sand",
+      "render": "solid",
+      "solid": true,
+      "opaque": true,
+      "hardness": 0.5,
+      "textures": {
+        "all": "sand"
+      },
+      "mined_by": "shovel"
+    },
+    {
+      "id": 6,
+      "name": "gravel",
+      "label": "Gravel",
+      "render": "solid",
+      "solid": true,
+      "opaque": true,
+      "hardness": 0.6,
+      "textures": {
+        "all": "gravel"
+      },
+      "mined_by": "shovel"
+    },
+    {
+      "id": 7,
+      "name": "water",
+      "label": "Water",
+      "render": "liquid",
+      "solid": false,
+      "opaque": false,
+      "breakable": false,
+      "replaceable": true,
+      "light_attenuation": 2,
+      "fluid": {
+        "kind": "water",
+        "level": 0,
+        "source": true
+      },
+      "textures": {
+        "all": "water"
+      }
+    },
+    {
+      "id": 8,
+      "name": "lava",
+      "label": "Lava",
+      "render": "liquid",
+      "solid": false,
+      "opaque": false,
+      "breakable": false,
+      "replaceable": true,
+      "emission": 14,
+      "light_attenuation": 2,
+      "fluid": {
+        "kind": "lava",
+        "level": 0,
+        "source": true
+      },
+      "textures": {
+        "all": "lava"
+      }
+    },
+    {
+      "id": 9,
+      "name": "oak_log",
+      "label": "Oak Log",
+      "render": "solid",
+      "solid": true,
+      "opaque": true,
+      "hardness": 1.2,
+      "textures": {
+        "top": "log_top",
+        "bottom": "log_top",
+        "side": "log_side"
+      },
+      "mined_by": "axe"
+    },
+    {
+      "id": 10,
+      "name": "oak_leaves",
+      "label": "Oak Leaves",
+      "render": "cutout",
+      "solid": true,
+      "opaque": false,
+      "hardness": 0.25,
+      "light_attenuation": 1,
+      "drops": "none",
+      "textures": {
+        "all": "leaves"
+      }
+    },
+    {
+      "id": 11,
+      "name": "oak_planks",
+      "label": "Oak Planks",
+      "render": "solid",
+      "solid": true,
+      "opaque": true,
+      "hardness": 1.2,
+      "textures": {
+        "all": "planks"
+      },
+      "mined_by": "axe"
+    },
+    {
+      "id": 12,
+      "name": "cobblestone",
+      "label": "Cobblestone",
+      "render": "solid",
+      "solid": true,
+      "opaque": true,
+      "hardness": 1.7,
+      "textures": {
+        "all": "cobble"
+      },
+      "mined_by": "pickaxe"
+    },
+    {
+      "id": 13,
+      "name": "snowy_grass",
+      "label": "Snowy Grass",
+      "render": "solid",
+      "solid": true,
+      "opaque": true,
+      "hardness": 0.6,
+      "drops": "dirt",
+      "textures": {
+        "top": "snow",
+        "bottom": "dirt",
+        "side": "snow_side"
+      }
+    },
+    {
+      "id": 14,
+      "name": "snow_block",
+      "label": "Snow",
+      "render": "solid",
+      "solid": true,
+      "opaque": true,
+      "hardness": 0.4,
+      "textures": {
+        "all": "snow"
+      },
+      "mined_by": "shovel"
+    },
+    {
+      "id": 15,
+      "name": "sandstone",
+      "label": "Sandstone",
+      "render": "solid",
+      "solid": true,
+      "opaque": true,
+      "hardness": 1.4,
+      "textures": {
+        "all": "sandstone"
+      },
+      "mined_by": "pickaxe"
+    },
+    {
+      "id": 16,
+      "name": "coal_ore",
+      "label": "Coal Ore",
+      "render": "solid",
+      "solid": true,
+      "opaque": true,
+      "hardness": 2.2,
+      "textures": {
+        "all": "coal_ore"
+      },
+      "mined_by": "pickaxe"
+    },
+    {
+      "id": 17,
+      "name": "iron_ore",
+      "label": "Iron Ore",
+      "render": "solid",
+      "solid": true,
+      "opaque": true,
+      "hardness": 2.6,
+      "textures": {
+        "all": "iron_ore"
+      },
+      "mined_by": "pickaxe",
+      "min_tier": 1
+    },
+    {
+      "id": 18,
+      "name": "gold_ore",
+      "label": "Gold Ore",
+      "render": "solid",
+      "solid": true,
+      "opaque": true,
+      "hardness": 2.6,
+      "textures": {
+        "all": "gold_ore"
+      },
+      "mined_by": "pickaxe",
+      "min_tier": 2
+    },
+    {
+      "id": 19,
+      "name": "diamond_ore",
+      "label": "Diamond Ore",
+      "render": "solid",
+      "solid": true,
+      "opaque": true,
+      "hardness": 3.0,
+      "textures": {
+        "all": "diamond_ore"
+      },
+      "mined_by": "pickaxe",
+      "min_tier": 2
+    },
+    {
+      "id": 20,
+      "name": "glass",
+      "label": "Glass",
+      "render": "cutout",
+      "solid": true,
+      "opaque": false,
+      "hardness": 0.4,
+      "drops": "none",
+      "textures": {
+        "all": "glass"
+      }
+    },
+    {
+      "id": 21,
+      "name": "tall_grass",
+      "label": "Tall Grass",
+      "render": "cross",
+      "solid": false,
+      "opaque": false,
+      "replaceable": true,
+      "hardness": 0.05,
+      "needs_support": true,
+      "drops": "none",
+      "textures": {
+        "all": "tall_grass"
+      }
+    },
+    {
+      "id": 22,
+      "name": "flower_red",
+      "label": "Poppy",
+      "render": "cross",
+      "solid": false,
+      "opaque": false,
+      "replaceable": true,
+      "hardness": 0.05,
+      "needs_support": true,
+      "textures": {
+        "all": "flower_red"
+      }
+    },
+    {
+      "id": 23,
+      "name": "flower_yellow",
+      "label": "Dandelion",
+      "render": "cross",
+      "solid": false,
+      "opaque": false,
+      "replaceable": true,
+      "hardness": 0.05,
+      "needs_support": true,
+      "textures": {
+        "all": "flower_yellow"
+      }
+    },
+    {
+      "id": 24,
+      "name": "torch",
+      "label": "Torch",
+      "render": "cross",
+      "solid": false,
+      "opaque": false,
+      "hardness": 0.05,
+      "emission": 14,
+      "needs_support": true,
+      "textures": {
+        "all": "torch"
+      }
+    },
+    {
+      "id": 25,
+      "name": "glowstone",
+      "label": "Glowstone",
+      "render": "solid",
+      "solid": true,
+      "opaque": true,
+      "hardness": 0.6,
+      "emission": 15,
+      "textures": {
+        "all": "glowstone"
+      }
+    },
+    {
+      "id": 26,
+      "name": "birch_log",
+      "label": "Birch Log",
+      "render": "solid",
+      "solid": true,
+      "opaque": true,
+      "hardness": 1.2,
+      "textures": {
+        "top": "log_top",
+        "bottom": "log_top",
+        "side": "birch_log_side"
+      },
+      "mined_by": "axe"
+    },
+    {
+      "id": 27,
+      "name": "birch_leaves",
+      "label": "Birch Leaves",
+      "render": "cutout",
+      "solid": true,
+      "opaque": false,
+      "hardness": 0.25,
+      "light_attenuation": 1,
+      "drops": "none",
+      "textures": {
+        "all": "birch_leaves"
+      }
+    },
+    {
+      "id": 28,
+      "name": "dead_bush",
+      "label": "Dead Bush",
+      "render": "cross",
+      "solid": false,
+      "opaque": false,
+      "replaceable": true,
+      "hardness": 0.05,
+      "needs_support": true,
+      "textures": {
+        "all": "dead_bush"
+      }
+    },
+    {
+      "id": 29,
+      "name": "mushroom_red",
+      "label": "Red Mushroom",
+      "render": "cross",
+      "solid": false,
+      "opaque": false,
+      "replaceable": true,
+      "hardness": 0.05,
+      "needs_support": true,
+      "textures": {
+        "all": "mushroom_red"
+      }
+    },
+    {
+      "id": 30,
+      "name": "mushroom_brown",
+      "label": "Brown Mushroom",
+      "render": "cross",
+      "solid": false,
+      "opaque": false,
+      "replaceable": true,
+      "hardness": 0.05,
+      "needs_support": true,
+      "textures": {
+        "all": "mushroom_brown"
+      }
+    },
+    {
+      "id": 31,
+      "name": "bricks",
+      "label": "Bricks",
+      "render": "solid",
+      "solid": true,
+      "opaque": true,
+      "hardness": 1.8,
+      "textures": {
+        "all": "bricks"
+      },
+      "mined_by": "pickaxe"
+    },
+    {
+      "id": 32,
+      "name": "stone_bricks",
+      "label": "Stone Bricks",
+      "render": "solid",
+      "solid": true,
+      "opaque": true,
+      "hardness": 1.8,
+      "textures": {
+        "all": "stone_bricks"
+      },
+      "mined_by": "pickaxe"
+    },
+    {
+      "id": 33,
+      "name": "mossy_cobblestone",
+      "label": "Mossy Cobblestone",
+      "render": "solid",
+      "solid": true,
+      "opaque": true,
+      "hardness": 1.7,
+      "textures": {
+        "all": "mossy_cobble"
+      },
+      "mined_by": "pickaxe"
+    },
+    {
+      "id": 34,
+      "name": "crafting_table",
+      "label": "Crafting Table",
+      "render": "solid",
+      "solid": true,
+      "opaque": true,
+      "hardness": 1.0,
+      "textures": {
+        "top": "crafting_table_top",
+        "bottom": "planks",
+        "side": "crafting_table_side"
+      },
+      "mined_by": "axe"
+    },
+    {
+      "id": 35,
+      "name": "bookshelf",
+      "label": "Bookshelf",
+      "render": "solid",
+      "solid": true,
+      "opaque": true,
+      "hardness": 1.0,
+      "drops": "oak_planks",
+      "textures": {
+        "top": "planks",
+        "bottom": "planks",
+        "side": "bookshelf"
+      },
+      "mined_by": "axe"
+    },
+    {
+      "id": 36,
+      "name": "spruce_log",
+      "label": "Spruce Log",
+      "render": "solid",
+      "solid": true,
+      "opaque": true,
+      "hardness": 1.2,
+      "textures": {
+        "top": "log_top",
+        "bottom": "log_top",
+        "side": "spruce_log_side"
+      },
+      "mined_by": "axe"
+    },
+    {
+      "id": 37,
+      "name": "spruce_leaves",
+      "label": "Spruce Leaves",
+      "render": "cutout",
+      "solid": true,
+      "opaque": false,
+      "hardness": 0.25,
+      "light_attenuation": 1,
+      "drops": "none",
+      "textures": {
+        "all": "spruce_leaves"
+      }
+    },
+    {
+      "id": 38,
+      "name": "jungle_log",
+      "label": "Jungle Log",
+      "render": "solid",
+      "solid": true,
+      "opaque": true,
+      "hardness": 1.2,
+      "textures": {
+        "top": "log_top",
+        "bottom": "log_top",
+        "side": "jungle_log_side"
+      },
+      "mined_by": "axe"
+    },
+    {
+      "id": 39,
+      "name": "jungle_leaves",
+      "label": "Jungle Leaves",
+      "render": "cutout",
+      "solid": true,
+      "opaque": false,
+      "hardness": 0.25,
+      "light_attenuation": 1,
+      "drops": "none",
+      "textures": {
+        "all": "jungle_leaves"
+      }
+    },
+    {
+      "id": 40,
+      "name": "acacia_log",
+      "label": "Acacia Log",
+      "render": "solid",
+      "solid": true,
+      "opaque": true,
+      "hardness": 1.2,
+      "textures": {
+        "top": "log_top",
+        "bottom": "log_top",
+        "side": "acacia_log_side"
+      },
+      "mined_by": "axe"
+    },
+    {
+      "id": 41,
+      "name": "acacia_leaves",
+      "label": "Acacia Leaves",
+      "render": "cutout",
+      "solid": true,
+      "opaque": false,
+      "hardness": 0.25,
+      "light_attenuation": 1,
+      "drops": "none",
+      "textures": {
+        "all": "acacia_leaves"
+      }
+    },
+    {
+      "id": 42,
+      "name": "ice",
+      "label": "Ice",
+      "render": "solid",
+      "solid": true,
+      "opaque": true,
+      "hardness": 0.5,
+      "drops": "none",
+      "textures": {
+        "all": "ice"
+      }
+    },
+    {
+      "id": 43,
+      "name": "packed_ice",
+      "label": "Packed Ice",
+      "render": "solid",
+      "solid": true,
+      "opaque": true,
+      "hardness": 0.7,
+      "textures": {
+        "all": "packed_ice"
+      }
+    },
+    {
+      "id": 44,
+      "name": "clay",
+      "label": "Clay",
+      "render": "solid",
+      "solid": true,
+      "opaque": true,
+      "hardness": 0.6,
+      "textures": {
+        "all": "clay"
+      },
+      "mined_by": "shovel"
+    },
+    {
+      "id": 45,
+      "name": "copper_ore",
+      "label": "Copper Ore",
+      "render": "solid",
+      "solid": true,
+      "opaque": true,
+      "hardness": 2.4,
+      "textures": {
+        "all": "copper_ore"
+      },
+      "mined_by": "pickaxe",
+      "min_tier": 1
+    },
+    {
+      "id": 46,
+      "name": "lapis_ore",
+      "label": "Lapis Ore",
+      "render": "solid",
+      "solid": true,
+      "opaque": true,
+      "hardness": 2.6,
+      "textures": {
+        "all": "lapis_ore"
+      },
+      "mined_by": "pickaxe",
+      "min_tier": 1
+    },
+    {
+      "id": 47,
+      "name": "redstone_ore",
+      "label": "Redstone Ore",
+      "render": "solid",
+      "solid": true,
+      "opaque": true,
+      "hardness": 2.6,
+      "emission": 3,
+      "textures": {
+        "all": "redstone_ore"
+      },
+      "mined_by": "pickaxe",
+      "min_tier": 2
+    },
+    {
+      "id": 48,
+      "name": "emerald_ore",
+      "label": "Emerald Ore",
+      "render": "solid",
+      "solid": true,
+      "opaque": true,
+      "hardness": 3.0,
+      "textures": {
+        "all": "emerald_ore"
+      },
+      "mined_by": "pickaxe",
+      "min_tier": 2
+    },
+    {
+      "id": 49,
+      "name": "smooth_stone",
+      "label": "Smooth Stone",
+      "render": "solid",
+      "solid": true,
+      "opaque": true,
+      "hardness": 1.7,
+      "textures": {
+        "all": "smooth_stone"
+      },
+      "mined_by": "pickaxe"
+    },
+    {
+      "id": 50,
+      "name": "cracked_stone_bricks",
+      "label": "Cracked Stone Bricks",
+      "render": "solid",
+      "solid": true,
+      "opaque": true,
+      "hardness": 1.8,
+      "textures": {
+        "all": "cracked_stone_bricks"
+      },
+      "mined_by": "pickaxe"
+    },
+    {
+      "id": 51,
+      "name": "fern",
+      "label": "Fern",
+      "render": "cross",
+      "solid": false,
+      "opaque": false,
+      "replaceable": true,
+      "hardness": 0.05,
+      "needs_support": true,
+      "drops": "none",
+      "textures": {
+        "all": "fern"
+      }
+    },
+    {
+      "id": 52,
+      "name": "water_flow_1",
+      "label": "Water",
+      "render": "liquid",
+      "solid": false,
+      "opaque": false,
+      "breakable": false,
+      "replaceable": true,
+      "light_attenuation": 2,
+      "fluid": {
+        "kind": "water",
+        "level": 1
+      },
+      "textures": {
+        "all": "water"
+      }
+    },
+    {
+      "id": 53,
+      "name": "water_flow_2",
+      "label": "Water",
+      "render": "liquid",
+      "solid": false,
+      "opaque": false,
+      "breakable": false,
+      "replaceable": true,
+      "light_attenuation": 2,
+      "fluid": {
+        "kind": "water",
+        "level": 2
+      },
+      "textures": {
+        "all": "water"
+      }
+    },
+    {
+      "id": 54,
+      "name": "water_flow_3",
+      "label": "Water",
+      "render": "liquid",
+      "solid": false,
+      "opaque": false,
+      "breakable": false,
+      "replaceable": true,
+      "light_attenuation": 2,
+      "fluid": {
+        "kind": "water",
+        "level": 3
+      },
+      "textures": {
+        "all": "water"
+      }
+    },
+    {
+      "id": 55,
+      "name": "water_flow_4",
+      "label": "Water",
+      "render": "liquid",
+      "solid": false,
+      "opaque": false,
+      "breakable": false,
+      "replaceable": true,
+      "light_attenuation": 2,
+      "fluid": {
+        "kind": "water",
+        "level": 4
+      },
+      "textures": {
+        "all": "water"
+      }
+    },
+    {
+      "id": 56,
+      "name": "lava_flow_1",
+      "label": "Lava",
+      "render": "liquid",
+      "solid": false,
+      "opaque": false,
+      "breakable": false,
+      "replaceable": true,
+      "emission": 14,
+      "light_attenuation": 2,
+      "fluid": {
+        "kind": "lava",
+        "level": 1
+      },
+      "textures": {
+        "all": "lava"
+      }
+    },
+    {
+      "id": 57,
+      "name": "lava_flow_2",
+      "label": "Lava",
+      "render": "liquid",
+      "solid": false,
+      "opaque": false,
+      "breakable": false,
+      "replaceable": true,
+      "emission": 14,
+      "light_attenuation": 2,
+      "fluid": {
+        "kind": "lava",
+        "level": 2
+      },
+      "textures": {
+        "all": "lava"
+      }
+    },
+    {
+      "id": 58,
+      "name": "obsidian",
+      "label": "Obsidian",
+      "render": "solid",
+      "solid": true,
+      "opaque": true,
+      "hardness": 4.0,
+      "textures": {
+        "all": "obsidian"
+      },
+      "mined_by": "pickaxe",
+      "min_tier": 3
+    },
+    {
+      "id": 59,
+      "name": "netherrack",
+      "label": "Netherrack",
+      "render": "solid",
+      "solid": true,
+      "opaque": true,
+      "hardness": 0.5,
+      "textures": {
+        "all": "netherrack"
+      },
+      "mined_by": "pickaxe"
+    },
+    {
+      "id": 60,
+      "name": "soul_sand",
+      "label": "Soul Sand",
+      "render": "solid",
+      "solid": true,
+      "opaque": true,
+      "hardness": 0.6,
+      "textures": {
+        "all": "soul_sand"
+      },
+      "mined_by": "shovel"
+    },
+    {
+      "id": 61,
+      "name": "nether_bricks",
+      "label": "Nether Bricks",
+      "render": "solid",
+      "solid": true,
+      "opaque": true,
+      "hardness": 2.0,
+      "textures": {
+        "all": "nether_bricks"
+      },
+      "mined_by": "pickaxe"
+    },
+    {
+      "id": 62,
+      "name": "chest",
+      "label": "Chest",
+      "render": "solid",
+      "solid": true,
+      "opaque": true,
+      "hardness": 1.2,
+      "textures": {
+        "top": "chest_top",
+        "bottom": "planks",
+        "side": "chest_side"
+      },
+      "mined_by": "axe"
+    },
+    {
+      "id": 63,
+      "name": "cobweb",
+      "label": "Cobweb",
+      "render": "cross",
+      "solid": false,
+      "opaque": false,
+      "replaceable": true,
+      "hardness": 0.4,
+      "drops": "none",
+      "textures": {
+        "all": "cobweb"
+      }
+    },
+    {
+      "id": 64,
+      "name": "end_stone",
+      "label": "End Stone",
+      "render": "solid",
+      "solid": true,
+      "opaque": true,
+      "hardness": 1.5,
+      "textures": {
+        "all": "end_stone"
+      }
+    },
+    {
+      "id": 65,
+      "name": "spawner",
+      "label": "Monster Spawner",
+      "render": "cutout",
+      "solid": true,
+      "opaque": false,
+      "hardness": 3.0,
+      "drops": "none",
+      "textures": {
+        "all": "spawner"
+      }
+    },
+    {
+      "id": 66,
+      "name": "nether_portal",
+      "label": "Nether Portal",
+      "render": "liquid",
+      "solid": false,
+      "opaque": false,
+      "breakable": false,
+      "replaceable": true,
+      "emission": 11,
+      "textures": {
+        "all": "nether_portal"
+      }
+    },
+    {
+      "id": 67,
+      "name": "glowshroom",
+      "label": "Glow Lichen",
+      "render": "cross",
+      "solid": false,
+      "opaque": false,
+      "replaceable": true,
+      "hardness": 0.1,
+      "emission": 7,
+      "drops": "none",
+      "textures": {
+        "all": "glowshroom"
+      }
+    },
+    {
+      "id": 68,
+      "name": "stick",
+      "label": "Stick",
+      "render": "none",
+      "solid": false,
+      "opaque": false,
+      "placeable": false,
+      "textures": {
+        "all": "stick"
+      }
+    },
+    {
+      "id": 69,
+      "name": "apple",
+      "label": "Apple",
+      "render": "none",
+      "solid": false,
+      "opaque": false,
+      "placeable": false,
+      "food": {
+        "hunger": 4
+      },
+      "textures": {
+        "all": "apple"
+      }
+    },
+    {
+      "id": 70,
+      "name": "raw_meat",
+      "label": "Raw Meat",
+      "render": "none",
+      "solid": false,
+      "opaque": false,
+      "placeable": false,
+      "food": {
+        "hunger": 3
+      },
+      "textures": {
+        "all": "raw_meat"
+      }
+    },
+    {
+      "id": 71,
+      "name": "cooked_meat",
+      "label": "Cooked Meat",
+      "render": "none",
+      "solid": false,
+      "opaque": false,
+      "placeable": false,
+      "food": {
+        "hunger": 8
+      },
+      "textures": {
+        "all": "cooked_meat"
+      }
+    },
+    {
+      "id": 72,
+      "name": "wood_pickaxe",
+      "label": "Wood Pickaxe",
+      "render": "none",
+      "solid": false,
+      "opaque": false,
+      "placeable": false,
+      "tool": {
+        "type": "pickaxe",
+        "tier": 0,
+        "speed": 2.0,
+        "damage": 2
+      },
+      "textures": {
+        "all": "pickaxe_wood"
+      }
+    },
+    {
+      "id": 73,
+      "name": "wood_axe",
+      "label": "Wood Axe",
+      "render": "none",
+      "solid": false,
+      "opaque": false,
+      "placeable": false,
+      "tool": {
+        "type": "axe",
+        "tier": 0,
+        "speed": 2.0,
+        "damage": 3
+      },
+      "textures": {
+        "all": "axe_wood"
+      }
+    },
+    {
+      "id": 74,
+      "name": "wood_shovel",
+      "label": "Wood Shovel",
+      "render": "none",
+      "solid": false,
+      "opaque": false,
+      "placeable": false,
+      "tool": {
+        "type": "shovel",
+        "tier": 0,
+        "speed": 2.0,
+        "damage": 2
+      },
+      "textures": {
+        "all": "shovel_wood"
+      }
+    },
+    {
+      "id": 75,
+      "name": "wood_sword",
+      "label": "Wood Sword",
+      "render": "none",
+      "solid": false,
+      "opaque": false,
+      "placeable": false,
+      "tool": {
+        "type": "sword",
+        "tier": 0,
+        "speed": 2.0,
+        "damage": 5
+      },
+      "textures": {
+        "all": "sword_wood"
+      }
+    },
+    {
+      "id": 76,
+      "name": "stone_pickaxe",
+      "label": "Stone Pickaxe",
+      "render": "none",
+      "solid": false,
+      "opaque": false,
+      "placeable": false,
+      "tool": {
+        "type": "pickaxe",
+        "tier": 1,
+        "speed": 4.0,
+        "damage": 3
+      },
+      "textures": {
+        "all": "pickaxe_stone"
+      }
+    },
+    {
+      "id": 77,
+      "name": "stone_axe",
+      "label": "Stone Axe",
+      "render": "none",
+      "solid": false,
+      "opaque": false,
+      "placeable": false,
+      "tool": {
+        "type": "axe",
+        "tier": 1,
+        "speed": 4.0,
+        "damage": 4
+      },
+      "textures": {
+        "all": "axe_stone"
+      }
+    },
+    {
+      "id": 78,
+      "name": "stone_shovel",
+      "label": "Stone Shovel",
+      "render": "none",
+      "solid": false,
+      "opaque": false,
+      "placeable": false,
+      "tool": {
+        "type": "shovel",
+        "tier": 1,
+        "speed": 4.0,
+        "damage": 3
+      },
+      "textures": {
+        "all": "shovel_stone"
+      }
+    },
+    {
+      "id": 79,
+      "name": "stone_sword",
+      "label": "Stone Sword",
+      "render": "none",
+      "solid": false,
+      "opaque": false,
+      "placeable": false,
+      "tool": {
+        "type": "sword",
+        "tier": 1,
+        "speed": 4.0,
+        "damage": 6
+      },
+      "textures": {
+        "all": "sword_stone"
+      }
+    },
+    {
+      "id": 80,
+      "name": "iron_pickaxe",
+      "label": "Iron Pickaxe",
+      "render": "none",
+      "solid": false,
+      "opaque": false,
+      "placeable": false,
+      "tool": {
+        "type": "pickaxe",
+        "tier": 2,
+        "speed": 6.0,
+        "damage": 4
+      },
+      "textures": {
+        "all": "pickaxe_iron"
+      }
+    },
+    {
+      "id": 81,
+      "name": "iron_axe",
+      "label": "Iron Axe",
+      "render": "none",
+      "solid": false,
+      "opaque": false,
+      "placeable": false,
+      "tool": {
+        "type": "axe",
+        "tier": 2,
+        "speed": 6.0,
+        "damage": 5
+      },
+      "textures": {
+        "all": "axe_iron"
+      }
+    },
+    {
+      "id": 82,
+      "name": "iron_shovel",
+      "label": "Iron Shovel",
+      "render": "none",
+      "solid": false,
+      "opaque": false,
+      "placeable": false,
+      "tool": {
+        "type": "shovel",
+        "tier": 2,
+        "speed": 6.0,
+        "damage": 4
+      },
+      "textures": {
+        "all": "shovel_iron"
+      }
+    },
+    {
+      "id": 83,
+      "name": "iron_sword",
+      "label": "Iron Sword",
+      "render": "none",
+      "solid": false,
+      "opaque": false,
+      "placeable": false,
+      "tool": {
+        "type": "sword",
+        "tier": 2,
+        "speed": 6.0,
+        "damage": 7
+      },
+      "textures": {
+        "all": "sword_iron"
+      }
+    },
+    {
+      "id": 84,
+      "name": "diamond_pickaxe",
+      "label": "Diamond Pickaxe",
+      "render": "none",
+      "solid": false,
+      "opaque": false,
+      "placeable": false,
+      "tool": {
+        "type": "pickaxe",
+        "tier": 3,
+        "speed": 8.0,
+        "damage": 5
+      },
+      "textures": {
+        "all": "pickaxe_diamond"
+      }
+    },
+    {
+      "id": 85,
+      "name": "diamond_axe",
+      "label": "Diamond Axe",
+      "render": "none",
+      "solid": false,
+      "opaque": false,
+      "placeable": false,
+      "tool": {
+        "type": "axe",
+        "tier": 3,
+        "speed": 8.0,
+        "damage": 6
+      },
+      "textures": {
+        "all": "axe_diamond"
+      }
+    },
+    {
+      "id": 86,
+      "name": "diamond_shovel",
+      "label": "Diamond Shovel",
+      "render": "none",
+      "solid": false,
+      "opaque": false,
+      "placeable": false,
+      "tool": {
+        "type": "shovel",
+        "tier": 3,
+        "speed": 8.0,
+        "damage": 5
+      },
+      "textures": {
+        "all": "shovel_diamond"
+      }
+    },
+    {
+      "id": 87,
+      "name": "diamond_sword",
+      "label": "Diamond Sword",
+      "render": "none",
+      "solid": false,
+      "opaque": false,
+      "placeable": false,
+      "tool": {
+        "type": "sword",
+        "tier": 3,
+        "speed": 8.0,
+        "damage": 8
+      },
+      "textures": {
+        "all": "sword_diamond"
+      }
+    }
   ]
 }

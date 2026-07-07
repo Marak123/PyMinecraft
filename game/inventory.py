@@ -106,14 +106,27 @@ class CraftingBook:
         recipes = []
         for entry in data["recipes"]:
             output = registry.id_of(entry["output"])
+            if entry.get("type") == "shaped":
+                # Flatten the pattern to ingredient counts — the list-based
+                # crafting UI is position-independent (3x3 grid deferred).
+                counts: dict[int, int] = {}
+                key = entry["key"]
+                for row in entry["pattern"]:
+                    for sym in row:
+                        if sym != " " and sym in key:
+                            bid = registry.id_of(key[sym])
+                            counts[bid] = counts.get(bid, 0) + 1
+                ingredients = counts
+            else:
+                ingredients = {
+                    registry.id_of(name): int(n)
+                    for name, n in entry["ingredients"].items()
+                }
             recipes.append(
                 Recipe(
                     output=output,
                     count=int(entry.get("count", 1)),
-                    ingredients={
-                        registry.id_of(name): int(n)
-                        for name, n in entry["ingredients"].items()
-                    },
+                    ingredients=ingredients,
                     label=registry.by_id[output].label,
                 )
             )

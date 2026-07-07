@@ -14,6 +14,7 @@ from typing import Any
 import numpy as np
 
 from engine.core.log import get_logger
+from engine.world.coords import CHUNK_Y
 
 _log = get_logger("save")
 
@@ -53,12 +54,18 @@ class WorldStorage:
             return None
         try:
             with np.load(path) as data:
-                return data["blocks"]
+                blocks = data["blocks"]
         except (OSError, ValueError, KeyError) as exc:
             # Corrupt chunk file: log and fall back to regeneration rather
             # than crashing the whole world load.
             _log.warning("Corrupt chunk %s (%s); regenerating", path.name, exc)
             return None
+        # Migrate pre-256 saves: pad the extra height with air (plan 4.1).
+        if blocks.shape[2] < CHUNK_Y:
+            padded = np.zeros((blocks.shape[0], blocks.shape[1], CHUNK_Y), dtype=np.uint8)
+            padded[:, :, : blocks.shape[2]] = blocks
+            return padded
+        return blocks
 
     def save_chunk(self, cx: int, cz: int, blocks: np.ndarray) -> None:
         self.chunk_dir.mkdir(parents=True, exist_ok=True)

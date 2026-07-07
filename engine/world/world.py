@@ -34,6 +34,9 @@ class World:
         self.chunks: dict[tuple[int, int], Chunk] = {}
         # Chunks whose mesh must be rebuilt this frame (player edits).
         self.dirty_chunks: set[tuple[int, int]] = set()
+        # Optional callback(x, y, z) fired after any successful set_block —
+        # the fluid/falling-block systems subscribe here.
+        self.on_change = None
 
     # -- chunk access -----------------------------------------------------------
     def get_chunk(self, cx: int, cz: int) -> Chunk | None:
@@ -104,6 +107,8 @@ class World:
         chunk.blocks[lx, lz, wy] = block_id
         chunk.modified = True
         self._mark_dirty_around(key, lx, lz)
+        if self.on_change is not None:
+            self.on_change(wx, wy, wz)
         return True
 
     def _mark_dirty_around(self, key: tuple[int, int], lx: int, lz: int) -> None:

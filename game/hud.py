@@ -39,6 +39,8 @@ class HudState:
     mode: str = "survival"
     health: float = 20.0
     max_health: float = 20.0
+    hunger: float = 20.0
+    max_hunger: float = 20.0
     air: float = 10.0
     max_air: float = 10.0
     breaking: float | None = None
@@ -182,7 +184,7 @@ class Hud:
         x0, y0 = self._hotbar_origin(width, height)
         icons = []
 
-        # Hearts: 10 icons, 2 hp each.
+        # Hearts: 10 icons, 2 hp each (left-aligned over the hotbar).
         hearts_y = y0 - _HEART - 6
         full_layer = self.renderer.tile_layer("heart_full")
         half_layer = self.renderer.tile_layer("heart_half")
@@ -192,14 +194,25 @@ class Hud:
             layer = full_layer if hp >= 2 else (half_layer if hp >= 1 else empty_layer)
             icons.append(_icon_quad(x0 + i * (_HEART + 2), hearts_y, _HEART, layer))
 
-        # Air bubbles appear only while diving, right-aligned over the hotbar.
+        # Hunger drumsticks: 10 icons, right-aligned over the hotbar.
+        f_full = self.renderer.tile_layer("food_full")
+        f_half = self.renderer.tile_layer("food_half")
+        f_empty = self.renderer.tile_layer("food_empty")
+        food_x1 = x0 + HOTBAR_SLOTS * _SLOT - _HEART
+        for i in range(10):
+            fv = state.hunger - i * 2
+            layer = f_full if fv >= 2 else (f_half if fv >= 1 else f_empty)
+            icons.append(_icon_quad(food_x1 - i * (_HEART + 2), hearts_y, _HEART, layer))
+
+        # Air bubbles appear only while diving, one row above the drumsticks.
         if state.air < state.max_air - 1e-3:
             bubble_layer = self.renderer.tile_layer("bubble")
             bubbles = int(np.ceil(state.air))
             bx1 = x0 + HOTBAR_SLOTS * _SLOT - _HEART
+            air_y = hearts_y - _HEART - 2
             for i in range(bubbles):
                 icons.append(
-                    _icon_quad(bx1 - i * (_HEART + 2), hearts_y, _HEART, bubble_layer)
+                    _icon_quad(bx1 - i * (_HEART + 2), air_y, _HEART, bubble_layer)
                 )
 
         if icons:
@@ -218,7 +231,7 @@ class Hud:
             f"verts: {s.get('vertices', 0) / 1e6:.2f}M   day: {state.time_of_day:.2f}"
             f"   seed: {state.seed}",
             f"ms: update {s.get('ms_update', 0.0):4.1f} | stream {s.get('ms_stream', 0.0):4.1f}"
-            f" | render {s.get('ms_render', 0.0):4.1f}",
+            f" | render {s.get('ms_render', 0.0):4.1f} | shadow {s.get('ms_shadow', 0.0):4.1f}",
         ]
         for i, line in enumerate(lines):
             self._text(8, 8 + i * (self.font.cell_h + 2), line)

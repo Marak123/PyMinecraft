@@ -10,7 +10,8 @@ from __future__ import annotations
 
 CHUNK_X = 16
 CHUNK_Z = 16
-CHUNK_Y = 128
+# 256 fits the 8-bit Y field of the packed vertex format exactly (plan 4.1).
+CHUNK_Y = 256
 
 
 def world_to_chunk(wx: int, wz: int) -> tuple[int, int]:

@@ -87,10 +87,20 @@ def compute_window_light(
     cost = (1 + registry.light_attenuation[blocks]).astype(_I16)
 
     sky = _sky_beams(blocks, beam_alive_top)
-    _flood(sky, receives, cost)
-
     block = registry.emission[blocks].astype(_I16)
-    _flood(block, receives, cost)
+
+    # Everything above the highest opaque block (+ a light-radius margin) is
+    # already correct after the vertical beam pass — pure skylight 15, zero
+    # block light. Flooding only the region that can actually change roughly
+    # halves lighting cost on the 256-tall world (plan 4.1).
+    solid_cols = registry.opaque[blocks].any(axis=(0, 1))
+    top = int(np.nonzero(solid_cols)[0][-1]) if solid_cols.any() else 0
+    src = block.any() and int(np.nonzero(block.any(axis=(0, 1)))[0][-1]) or 0
+    y_hi = min(blocks.shape[2], max(top, src) + MAX_LIGHT + 2)
+
+    view = (slice(None), slice(None), slice(0, y_hi))
+    _flood(sky[view], receives[view], cost[view])
+    _flood(block[view], receives[view], cost[view])
     return sky.astype(np.uint8), block.astype(np.uint8)
 
 

@@ -1,9 +1,10 @@
 {
-  "comment": "Shapeless, block-based crafting recipes. ingredients: {block_name: count}.",
+  "comment": "Recipes. Shapeless: {output, count, ingredients:{name:count}}. Shaped: {type:shaped, output, count, pattern:[rows], key:{sym:name}} — the list-based crafting UI flattens shaped patterns to ingredient counts (position-independent for now).",
   "recipes": [
     { "output": "oak_planks",        "count": 4, "ingredients": { "oak_log": 1 } },
-    { "output": "crafting_table",    "count": 1, "ingredients": { "oak_planks": 4 } },
-    { "output": "torch",             "count": 6, "ingredients": { "coal_ore": 1, "oak_planks": 1 } },
+    { "output": "stick",             "count": 4, "ingredients": { "oak_planks": 2 } },
+    { "output": "crafting_table",    "count": 1, "type": "shaped", "pattern": ["##", "##"], "key": { "#": "oak_planks" } },
+    { "output": "torch",             "count": 6, "ingredients": { "coal_ore": 1, "stick": 1 } },
     { "output": "stone",             "count": 1, "ingredients": { "cobblestone": 1 } },
     { "output": "stone_bricks",      "count": 4, "ingredients": { "stone": 4 } },
     { "output": "bricks",            "count": 4, "ingredients": { "cobblestone": 2, "sand": 2 } },
@@ -11,6 +12,27 @@
     { "output": "mossy_cobblestone", "count": 1, "ingredients": { "cobblestone": 1, "dirt": 1 } },
     { "output": "bookshelf",         "count": 1, "ingredients": { "oak_planks": 6 } },
     { "output": "glowstone",         "count": 1, "ingredients": { "torch": 4, "glass": 1 } },
-    { "output": "snow_block",        "count": 1, "ingredients": { "dirt": 1, "glass": 1 } }
+    { "output": "chest",             "count": 1, "ingredients": { "oak_planks": 8 } },
+    { "output": "cooked_meat",       "count": 1, "ingredients": { "raw_meat": 1, "coal_ore": 1 } },
+
+    { "output": "wood_pickaxe",    "count": 1, "type": "shaped", "pattern": ["###", " | ", " | "], "key": { "#": "oak_planks", "|": "stick" } },
+    { "output": "wood_axe",        "count": 1, "type": "shaped", "pattern": ["##", "#|", " |"], "key": { "#": "oak_planks", "|": "stick" } },
+    { "output": "wood_shovel",     "count": 1, "type": "shaped", "pattern": ["#", "|", "|"], "key": { "#": "oak_planks", "|": "stick" } },
+    { "output": "wood_sword",      "count": 1, "type": "shaped", "pattern": ["#", "#", "|"], "key": { "#": "oak_planks", "|": "stick" } },
+
+    { "output": "stone_pickaxe",   "count": 1, "type": "shaped", "pattern": ["###", " | ", " | "], "key": { "#": "cobblestone", "|": "stick" } },
+    { "output": "stone_axe",       "count": 1, "type": "shaped", "pattern": ["##", "#|", " |"], "key": { "#": "cobblestone", "|": "stick" } },
+    { "output": "stone_shovel",    "count": 1, "type": "shaped", "pattern": ["#", "|", "|"], "key": { "#": "cobblestone", "|": "stick" } },
+    { "output": "stone_sword",     "count": 1, "type": "shaped", "pattern": ["#", "#", "|"], "key": { "#": "cobblestone", "|": "stick" } },
+
+    { "output": "iron_pickaxe",    "count": 1, "type": "shaped", "pattern": ["###", " | ", " | "], "key": { "#": "iron_ore", "|": "stick" } },
+    { "output": "iron_axe",        "count": 1, "type": "shaped", "pattern": ["##", "#|", " |"], "key": { "#": "iron_ore", "|": "stick" } },
+    { "output": "iron_shovel",     "count": 1, "type": "shaped", "pattern": ["#", "|", "|"], "key": { "#": "iron_ore", "|": "stick" } },
+    { "output": "iron_sword",      "count": 1, "type": "shaped", "pattern": ["#", "#", "|"], "key": { "#": "iron_ore", "|": "stick" } },
+
+    { "output": "diamond_pickaxe", "count": 1, "type": "shaped", "pattern": ["###", " | ", " | "], "key": { "#": "diamond_ore", "|": "stick" } },
+    { "output": "diamond_axe",     "count": 1, "type": "shaped", "pattern": ["##", "#|", " |"], "key": { "#": "diamond_ore", "|": "stick" } },
+    { "output": "diamond_shovel",  "count": 1, "type": "shaped", "pattern": ["#", "|", "|"], "key": { "#": "diamond_ore", "|": "stick" } },
+    { "output": "diamond_sword",   "count": 1, "type": "shaped", "pattern": ["#", "#", "|"], "key": { "#": "diamond_ore", "|": "stick" } }
   ]
 }

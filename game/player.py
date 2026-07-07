@@ -39,6 +39,7 @@ class Player:
     SWIM_SPEED = 3.1
 
     MAX_HEALTH = 20.0
+    MAX_HUNGER = 20.0
     MAX_AIR = 10.0          # seconds of breath
     SAFE_FALL = 3.2         # blocks of free fall before damage
     REGEN_DELAY = 5.0       # seconds after damage before regen starts
@@ -62,6 +63,11 @@ class Player:
 
         self.health = self.MAX_HEALTH
         self.air = self.MAX_AIR
+        # Hunger (plan 8.3): 0..20, saturation buffers it, exhaustion drains it.
+        self.hunger = self.MAX_HUNGER
+        self.saturation = 5.0
+        self.exhaustion = 0.0
+        self._starve_tick = 0.0
         self.dead = False
         self.damage_flash = 0.0  # seconds of red vignette left
         self._respawn_timer = 0.0
@@ -102,8 +108,52 @@ class Player:
         self.velocity[:] = 0.0
         self.health = self.MAX_HEALTH
         self.air = self.MAX_AIR
+        self.hunger = self.MAX_HUNGER
+        self.saturation = 5.0
+        self.exhaustion = 0.0
         self.dead = False
         self._fall_peak = None
+
+    # -- hunger -----------------------------------------------------------------
+    @property
+    def can_sprint(self) -> bool:
+        return self.mode == CREATIVE or self.hunger > 6.0
+
+    def add_exhaustion(self, amount: float) -> None:
+        if self.mode == CREATIVE:
+            return
+        self.exhaustion += amount
+        while self.exhaustion >= 4.0:
+            self.exhaustion -= 4.0
+            if self.saturation > 0.0:
+                self.saturation = max(0.0, self.saturation - 1.0)
+            else:
+                self.hunger = max(0.0, self.hunger - 1.0)
+
+    def eat(self, hunger_points: int) -> bool:
+        if self.hunger >= self.MAX_HUNGER:
+            return False
+        self.hunger = min(self.MAX_HUNGER, self.hunger + hunger_points)
+        self.saturation = min(self.hunger, self.saturation + hunger_points * 0.6)
+        return True
+
+    def _update_hunger(self, dt: float) -> None:
+        if self.mode == CREATIVE:
+            self.hunger = self.MAX_HUNGER
+            return
+        # Well-fed: slowly regenerate, burning food to do it.
+        if self.hunger >= 18.0 and self.health < self.MAX_HEALTH:
+            self.health = min(self.MAX_HEALTH, self.health + 0.5 * dt)
+            self.add_exhaustion(3.0 * dt)
+        # Starving: lose health down to a floor.
+        if self.hunger <= 0.0:
+            self._starve_tick += dt
+            if self._starve_tick >= 4.0:
+                self._starve_tick = 0.0
+                if self.health > 1.0:
+                    self.damage(1.0)
+        else:
+            self._starve_tick = 0.0
 
     def _update_survival(self, dt: float) -> None:
         self.damage_flash = max(0.0, self.damage_flash - dt)
@@ -174,6 +224,7 @@ class Player:
         self._track_falling()
         self._apply_movement(dt)
         self._update_survival(dt)
+        self._update_hunger(dt)
         camera.position = self.eye_position
 
         # Fell out of the world (should be impossible with bedrock, but a
@@ -226,7 +277,10 @@ class Player:
         moving = bool(np.linalg.norm(wish) > 0.1)
         self.sprinting = (
             inp.is_down(glfw.KEY_LEFT_CONTROL) and moving and not self.sneaking
+            and self.can_sprint
         )
+        if self.sprinting:
+            self.add_exhaustion(0.1 * self.SPRINT_SPEED * dt)  # ~per block
         if self.in_fluid:
             speed = self.SWIM_SPEED * (0.55 if self.in_lava else 1.0)
         elif self.sneaking:
@@ -251,6 +305,7 @@ class Player:
             self.velocity[1] = max(self.velocity[1], -55.0)  # terminal velocity
             if self.on_ground and inp.is_down(glfw.KEY_SPACE):
                 self.velocity[1] = self.JUMP_SPEED
+                self.add_exhaustion(0.2 if self.sprinting else 0.05)
                 if self.sprinting:
                     # Sprint-jumping carries extra momentum, Minecraft-style.
                     self.velocity[0] += camera.flat_forward[0] * 1.6

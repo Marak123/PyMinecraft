@@ -26,7 +26,9 @@ from engine.core import mathx
 from engine.core.log import get_logger
 from engine.graphics import atlas, shaders
 from engine.graphics.font import FontAtlas
+from engine.graphics.framebuffer import SceneTargets
 from engine.graphics.mesher import ChunkMeshData
+from engine.graphics.shadow import CASCADE_SPLITS, cascade_matrices
 from engine.world.blocks import BlockRegistry
 from engine.world.coords import CHUNK_X, CHUNK_Y, CHUNK_Z
 from engine.world.environment import Environment
@@ -34,11 +36,12 @@ from engine.world.environment import Environment
 _log = get_logger("renderer")
 
 # UI-only tiles appended to the block tile atlas (hearts, bubbles...).
-_UI_TILES = ("heart_full", "heart_half", "heart_empty", "bubble")
+_UI_TILES = ("heart_full", "heart_half", "heart_empty", "bubble",
+             "food_full", "food_half", "food_empty")
 
-_CLOUD_ALTITUDE = 112.0
-_CLOUD_CELL = 12.0
-_CLOUD_GRID = 48
+_CLOUD_ALTITUDE = 224.0  # above the tallest 256-world peaks
+_CLOUD_CELL = 16.0
+_CLOUD_GRID = 32
 _CLOUD_PERIOD = _CLOUD_CELL * _CLOUD_GRID
 
 
@@ -46,11 +49,14 @@ _CLOUD_PERIOD = _CLOUD_CELL * _CLOUD_GRID
 class _Stream:
     vbo: moderngl.Buffer
     vao: moderngl.VertexArray
+    svao: moderngl.VertexArray | None  # depth-only VAO for the shadow pass
     count: int      # vertices in use
     capacity: int   # bytes allocated
 
     def release(self) -> None:
         self.vao.release()
+        if self.svao is not None:
+            self.svao.release()
         self.vbo.release()
 
 
@@ -148,6 +154,7 @@ class Renderer:
         ctx: moderngl.Context,
         registry: BlockRegistry,
         font_atlas: FontAtlas | None = None,
+        pack_dir: str | None = None,
     ) -> None:
         self.ctx = ctx
         self.registry = registry
@@ -155,6 +162,8 @@ class Renderer:
 
         self.prog_chunk = ctx.program(shaders.CHUNK_VERT, shaders.CHUNK_FRAG)
         self.prog_water = ctx.program(shaders.WATER_VERT, shaders.WATER_FRAG)
+        self.prog_shadow = ctx.program(shaders.SHADOW_VERT, shaders.SHADOW_FRAG)
+        self.prog_tonemap = ctx.program(shaders.TONEMAP_VERT, shaders.TONEMAP_FRAG)
         self.prog_sky = ctx.program(shaders.SKY_VERT, shaders.SKY_FRAG)
         self.prog_clouds = ctx.program(shaders.CLOUD_VERT, shaders.CLOUD_FRAG)
         self.prog_lines = ctx.program(shaders.LINES_VERT, shaders.LINES_FRAG)
@@ -168,20 +177,44 @@ class Renderer:
         tile_names = registry.required_tiles() + [
             t for t in _UI_TILES if t not in registry.required_tiles()
         ]
-        tiles, mapping = atlas.build_tiles(tile_names)
+        albedo, normal, mrao, mapping = atlas.build_tiles(tile_names, pack_dir)
         registry.assign_texture_layers(mapping)
         self._tile_layers = mapping
-        self.tiles = ctx.texture_array(
-            (atlas.TILE, atlas.TILE, tiles.shape[0]), 4, tiles.tobytes()
-        )
+        size = atlas.ATLAS_SIZE
+        layers = albedo.shape[0]
+        self.tiles = ctx.texture_array((size, size, layers), 4, albedo.tobytes())
         self.tiles.build_mipmaps()
         self.tiles.filter = (moderngl.NEAREST_MIPMAP_LINEAR, moderngl.NEAREST)
+        self.tiles_normal = ctx.texture_array((size, size, layers), 3, normal.tobytes())
+        self.tiles_mrao = ctx.texture_array((size, size, layers), 3, mrao.tobytes())
+        for tex in (self.tiles_normal, self.tiles_mrao):
+            tex.build_mipmaps()
+            tex.filter = (moderngl.LINEAR_MIPMAP_LINEAR, moderngl.LINEAR)
         try:
             self.tiles.anisotropy = 8.0
+            self.tiles_normal.anisotropy = 8.0
+            self.tiles_mrao.anisotropy = 8.0
         except Exception:  # noqa: BLE001 - optional GPU feature
             pass
 
+        self.prog_bloom = ctx.program(shaders.TONEMAP_VERT, shaders.BLOOM_FRAG)
         self._sky_vao = ctx.vertex_array(self.prog_sky, [])
+        self._tonemap_vao = ctx.vertex_array(self.prog_tonemap, [])
+        self._bloom_vao = ctx.vertex_array(self.prog_bloom, [])
+        self._set(self.prog_tonemap, "u_scene", 0)
+        self._set(self.prog_tonemap, "u_bloom_a", 1)
+        self._set(self.prog_tonemap, "u_bloom_b", 2)
+        self._set(self.prog_tonemap, "u_bloom_c", 3)
+        # HDR scene target + shadow cascades (resized on first frame).
+        self.targets = SceneTargets(ctx, 8, 8)
+        for i, tex in enumerate(self.targets.shadow_maps):
+            tex.use(location=5 + i)
+        self._set(self.prog_chunk, "u_shadow0", 5)
+        self._set(self.prog_chunk, "u_shadow1", 6)
+        self._set(self.prog_chunk, "u_shadow2", 7)
+        self._set(self.prog_chunk, "u_cascade_far", CASCADE_SPLITS)
+        self._set(self.prog_chunk, "u_normal_map", 8)
+        self._set(self.prog_chunk, "u_mrao_map", 9)
         self._box_vbo = ctx.buffer(_unit_cube_edges().tobytes())
         self._box_vao = ctx.vertex_array(
             self.prog_lines, [(self._box_vbo, "3f4", "in_pos")]
@@ -221,8 +254,17 @@ class Renderer:
             self.font_tex = ctx.texture((w, h), 1, font_atlas.image.tobytes())
             self.font_tex.filter = (moderngl.NEAREST, moderngl.NEAREST)
 
+        # Average colour per tile layer — particle tint for block breaks.
+        self._tile_avg = (albedo[:, :, :, :3].reshape(layers, -1, 3)
+                          .mean(axis=1) / 255.0).astype("f4")
+
         self._set(self.prog_water, "u_alpha", 0.62)
-        _log.info("Renderer ready (%d tile layers)", tiles.shape[0])
+        _log.info("Renderer ready (%d tile layers @ %dpx)", layers, size)
+
+    def block_color(self, block_id: int) -> tuple[float, float, float]:
+        layer = int(self.registry.face_layers[block_id, 4])
+        r, g, b = self._tile_avg[layer]
+        return (float(r), float(g), float(b))
 
     def tile_layer(self, name: str) -> int:
         """Texture-array layer of a tile by name (UI icons)."""
@@ -264,7 +306,13 @@ class Renderer:
         vbo = self.ctx.buffer(reserve=capacity, dynamic=True)
         vbo.write(payload)
         vao = self.ctx.vertex_array(prog, [(vbo, "2u4", "in_data")])
-        return _Stream(vbo, vao, len(data) // 2, capacity)
+        # Chunk-shader streams get a second, depth-only VAO for shadows.
+        svao = None
+        if prog is self.prog_chunk:
+            svao = self.ctx.vertex_array(
+                self.prog_shadow, [(vbo, "2u4", "in_data")]
+            )
+        return _Stream(vbo, vao, svao, len(data) // 2, capacity)
 
     def upload_chunk(self, cx: int, cz: int, mesh: ChunkMeshData) -> None:
         key = (cx, cz)
@@ -285,6 +333,100 @@ class Renderer:
     # -- frame ----------------------------------------------------------------------
     def resize(self, width: int, height: int) -> None:
         self.ctx.viewport = (0, 0, width, height)
+        self.targets.resize(width, height)
+
+    def _shadow_pass(self, camera, env, gpus, centers) -> list[np.ndarray] | None:
+        """Render the CSM cascades; returns light matrices or None (night)."""
+        if env.daylight <= 0.02 or not gpus:
+            return None
+        matrices = cascade_matrices(
+            camera.position, camera.forward, env.sun_dir,
+            self.targets.shadow_resolution,
+        )
+        ctx = self.ctx
+        ctx.enable(moderngl.DEPTH_TEST)
+        ctx.disable(moderngl.CULL_FACE | moderngl.BLEND)
+        self.tiles.use(location=0)
+        prog = self.prog_shadow
+        self._set(prog, "u_tiles", 0)
+        origin_uniform = prog["u_chunk_origin"]
+        dist2 = np.sum((centers[:, [0, 2]] - camera.position[[0, 2]]) ** 2, axis=1)
+
+        for i, (fbo, matrix) in enumerate(zip(self.targets.shadow_fbos, matrices)):
+            fbo.clear(depth=1.0)
+            fbo.use()
+            self._set_mat(prog, "u_light_vp", matrix)
+            # Only chunks near enough to cast into this cascade.
+            reach = (CASCADE_SPLITS[i] + CHUNK_X * 2.5) ** 2
+            self._set(prog, "u_alpha_test", False)
+            casters = [g for g, d in zip(gpus, dist2) if d < reach]
+            for gpu in casters:
+                if gpu.opaque is not None and gpu.opaque.svao is not None:
+                    origin_uniform.value = gpu.origin
+                    gpu.opaque.svao.render(moderngl.TRIANGLES, vertices=gpu.opaque.count)
+            # Cutout (leaves) shadows only in the two near cascades — the far
+            # cascade's alpha-tested overdraw isn't worth the fill cost.
+            if i < 2:
+                self._set(prog, "u_alpha_test", True)
+                for gpu in casters:
+                    if gpu.cutout is not None and gpu.cutout.svao is not None:
+                        origin_uniform.value = gpu.origin
+                        gpu.cutout.svao.render(moderngl.TRIANGLES, vertices=gpu.cutout.count)
+        return matrices
+
+    def _finish_frame(
+        self,
+        out_fbo: moderngl.Framebuffer,
+        extra_pass,
+        view_proj: np.ndarray,
+        env: Environment,
+        time_s: float,
+        underwater: bool,
+        bloom: bool,
+    ) -> None:
+        """Entity/rain callback into HDR, bloom chain, tonemap to output."""
+        if extra_pass is not None:
+            extra_pass()
+        ctx = self.ctx
+        ctx.disable(moderngl.DEPTH_TEST | moderngl.CULL_FACE | moderngl.BLEND)
+
+        if bloom:
+            # Threshold-extract into the 1/2 target, then downsample twice.
+            src = self.targets.hdr_color
+            for i, (tex, fbo) in enumerate(self.targets.bloom):
+                fbo.use()
+                src.use(location=0)
+                self._set(self.prog_bloom, "u_src", 0)
+                self._set(self.prog_bloom, "u_extract", i == 0)
+                self._bloom_vao.render(moderngl.TRIANGLES, vertices=3)
+                src = tex
+
+        # Sun position in screen UV space for the god-ray march.
+        sun_screen = (0.0, 0.0, 0.0)
+        if env.daylight > 0.05:
+            # w=0: a direction (point at infinity) — camera-translation-proof.
+            clip = view_proj @ np.append(env.sun_dir, 0.0)
+            if clip[3] > 0.0:
+                ndc = clip[:2] / clip[3]
+                if abs(ndc[0]) < 1.3 and abs(ndc[1]) < 1.3:
+                    fade = max(0.0, 1.0 - (abs(ndc[0]) + abs(ndc[1])) * 0.45)
+                    sun_screen = (
+                        float(ndc[0] * 0.5 + 0.5),
+                        float(ndc[1] * 0.5 + 0.5),
+                        float(env.daylight * fade),
+                    )
+
+        out_fbo.use()
+        self.targets.hdr_color.use(location=0)
+        for i, (tex, _fbo) in enumerate(self.targets.bloom):
+            tex.use(location=1 + i)
+        prog = self.prog_tonemap
+        self._set(prog, "u_bloom_strength", 0.85 if bloom else 0.0)
+        self._set(prog, "u_underwater", underwater)
+        self._set(prog, "u_time", time_s)
+        self._set(prog, "u_grade", tuple(env.color_grade))
+        self._set(prog, "u_sun_screen", sun_screen)
+        self._tonemap_vao.render(moderngl.TRIANGLES, vertices=3)
 
     def render_world(
         self,
@@ -295,12 +437,33 @@ class Renderer:
         fog_end: float,
         fog_color: tuple[float, float, float] | None = None,
         highlight: tuple[int, int, int] | None = None,
+        shadows: bool = True,
+        extra_pass=None,
+        underwater: bool = False,
+        bloom: bool = True,
     ) -> dict[str, int]:
         ctx = self.ctx
         view_proj = camera.view_proj()
         fog = tuple(fog_color if fog_color is not None else env.fog_color)
         self._daylight_cache = env.daylight
 
+        # The scene renders into the HDR target; whatever framebuffer the
+        # caller had bound (screen or a test FBO) receives the tonemapped blit.
+        out_fbo = ctx.fbo
+        self.targets.resize(*out_fbo.size)
+
+        import time as _t
+        gpus_all = list(self._chunks.values())
+        centers_all = (
+            np.array([g.center for g in gpus_all]) if gpus_all else np.zeros((0, 3))
+        )
+        _ts = _t.perf_counter()
+        shadow_mats = (
+            self._shadow_pass(camera, env, gpus_all, centers_all) if shadows else None
+        )
+        self.last_shadow_ms = (_t.perf_counter() - _ts) * 1000.0
+
+        self.targets.hdr_fbo.use()
         ctx.clear(fog[0], fog[1], fog[2], 1.0, depth=1.0)
 
         # -- sky --------------------------------------------------------------
@@ -313,30 +476,43 @@ class Renderer:
         self._sky_vao.render(moderngl.TRIANGLES, vertices=3)
 
         # -- visibility -----------------------------------------------------------
-        keys = list(self._chunks.keys())
-        stats = {"chunks_loaded": len(keys), "chunks_visible": 0, "vertices": 0}
-        if not keys:
+        stats = {"chunks_loaded": len(gpus_all), "chunks_visible": 0, "vertices": 0}
+        if not gpus_all:
             self._render_clouds(camera, view_proj, time_s, fog, fog_start, fog_end)
+            self._finish_frame(out_fbo, extra_pass, view_proj, env, time_s, underwater, bloom)
             return stats
-        gpus = [self._chunks[k] for k in keys]
-        centers = np.array([g.center for g in gpus])
-        halves = np.array([g.half for g in gpus])
+        halves = np.array([g.half for g in gpus_all])
         planes = camera.frustum_planes()
-        visible_mask = mathx.aabbs_in_frustum(planes, centers, halves)
+        visible_mask = mathx.aabbs_in_frustum(planes, centers_all, halves)
         visible_idx = np.nonzero(visible_mask)[0]
         if len(visible_idx) == 0:
             self._render_clouds(camera, view_proj, time_s, fog, fog_start, fog_end)
+            self._finish_frame(out_fbo, extra_pass, view_proj, env, time_s, underwater, bloom)
             return stats
-        dist2 = np.sum((centers[visible_idx] - camera.position) ** 2, axis=1)
+        dist2 = np.sum((centers_all[visible_idx] - camera.position) ** 2, axis=1)
         order = visible_idx[np.argsort(dist2)]  # front-to-back
-        visible = [gpus[i] for i in order]
+        visible = [gpus_all[i] for i in order]
         stats["chunks_visible"] = len(visible)
 
         # -- opaque ------------------------------------------------------------
         ctx.enable(moderngl.DEPTH_TEST | moderngl.CULL_FACE)
         self.tiles.use(location=0)
+        self.tiles_normal.use(location=8)
+        self.tiles_mrao.use(location=9)
+        for i, tex in enumerate(self.targets.shadow_maps):
+            tex.use(location=5 + i)
         prog = self.prog_chunk
         self._set(prog, "u_tiles", 0)
+        self._set(prog, "u_shadows", shadow_mats is not None)
+        if shadow_mats is not None:
+            try:
+                prog["u_light_vp"].write(
+                    np.concatenate(
+                        [m.T.astype("f4").reshape(-1) for m in shadow_mats]
+                    ).tobytes()
+                )
+            except KeyError:
+                pass
         self._set_mat(prog, "u_view_proj", view_proj)
         self._set(prog, "u_sun_dir", tuple(env.sun_dir))
         self._set(prog, "u_daylight", env.daylight)
@@ -367,6 +543,8 @@ class Renderer:
         prog = self.prog_water
         self._set(prog, "u_tiles", 0)
         self._set_mat(prog, "u_view_proj", view_proj)
+        self._set(prog, "u_zenith_color", tuple(env.zenith_color))
+        self._set(prog, "u_horizon_color", tuple(env.horizon_color))
         self._set(prog, "u_sun_dir", tuple(env.sun_dir))
         self._set(prog, "u_daylight", env.daylight)
         self._set(prog, "u_time", time_s)
@@ -391,6 +569,7 @@ class Renderer:
             self._box_vao.render(moderngl.LINES)
 
         ctx.disable(moderngl.BLEND)
+        self._finish_frame(out_fbo, extra_pass, view_proj, env, time_s, underwater, bloom)
         return stats
 
     def _render_clouds(
@@ -512,7 +691,12 @@ class Renderer:
         img.save(path)
         _log.info("Screenshot saved to %s", path)
 
-    def release(self) -> None:
+    def clear_chunks(self) -> None:
+        """Drop all chunk meshes (dimension switch) — keeps GL programs/FBOs."""
         for gpu in self._chunks.values():
             gpu.release()
         self._chunks.clear()
+
+    def release(self) -> None:
+        self.clear_chunks()
+        self.targets.release()

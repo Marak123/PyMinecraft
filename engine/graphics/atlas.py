@@ -20,7 +20,11 @@ from engine.core.log import get_logger
 
 _log = get_logger("atlas")
 
+# Painters author tiles at TILE resolution; build_tiles upsamples to
+# ATLAS_SIZE and layers extra fine-grain detail on top (plan phase 3,
+# adjusted from 128 to 64 for startup time).
 TILE = 32
+ATLAS_SIZE = 64
 
 Painter = Callable[[np.random.Generator], np.ndarray]
 _PAINTERS: dict[str, Painter] = {}
@@ -478,6 +482,256 @@ def _p_diamond(rng):
     return _ore(rng, (104, 236, 242))
 
 
+@painter("copper_ore")
+def _p_copper(rng):
+    return _ore(rng, (216, 125, 78))
+
+
+@painter("lapis_ore")
+def _p_lapis(rng):
+    return _ore(rng, (42, 82, 190))
+
+
+@painter("redstone_ore")
+def _p_redstone(rng):
+    return _ore(rng, (222, 38, 28))
+
+
+@painter("emerald_ore")
+def _p_emerald(rng):
+    return _ore(rng, (58, 202, 92))
+
+
+@painter("smooth_stone")
+def _p_smooth_stone(rng):
+    tile = _mottle(_flat((141, 141, 144)), rng, 8)
+    return _bevel(_grain(tile, rng, 3), 6)
+
+
+@painter("cracked_stone_bricks")
+def _p_cracked_bricks(rng):
+    tile = _p_stone_bricks(rng)
+    for _ in range(4):  # long cracks across the masonry
+        x, y = rng.integers(2, TILE - 10, size=2)
+        for _ in range(int(rng.integers(8, 16))):
+            x += int(rng.integers(0, 2))
+            y += int(rng.integers(-1, 2))
+            if 0 <= x < TILE and 0 <= y < TILE:
+                tile[y, x, :3] = (tile[y, x, :3] * 0.6).astype(np.uint8)
+    return tile
+
+
+@painter("ice")
+def _p_ice(rng):
+    tile = _mottle(_flat((168, 205, 240)), rng, 12, ((16, 1.0), (8, 0.6)))
+    for _ in range(4):  # glassy internal cracks
+        x, y = rng.integers(2, TILE - 8, size=2)
+        for _ in range(int(rng.integers(5, 10))):
+            x += int(rng.integers(0, 2))
+            y += int(rng.integers(-1, 2))
+            if 0 <= x < TILE and 0 <= y < TILE:
+                tile[y, x, :3] = (222, 240, 252)
+    return _bevel(tile, 8)
+
+
+@painter("packed_ice")
+def _p_packed_ice(rng):
+    return _bevel(_mottle(_flat((126, 172, 224)), rng, 14), 8)
+
+
+@painter("clay")
+def _p_clay(rng):
+    return _grain(_mottle(_flat((158, 160, 170)), rng, 10), rng, 4)
+
+
+@painter("obsidian")
+def _p_obsidian(rng):
+    tile = _mottle(_flat((22, 18, 34)), rng, 12, ((8, 1.0), (4, 0.6)))
+    glint = _noise(rng, ((8, 1.0),)) > 0.55
+    tile[glint, :3] = np.clip(tile[glint, :3].astype(np.int16) +
+                              np.array([44, 30, 60]), 0, 255).astype(np.uint8)
+    return _bevel(tile, 6)
+
+
+@painter("netherrack")
+def _p_netherrack(rng):
+    tile = _mottle(_flat((94, 34, 34)), rng, 20, ((8, 1.0), (4, 0.7), (2, 0.4)))
+    veins = _noise(rng, ((8, 1.0),)) > 0.4
+    tile[veins, :3] = np.clip(tile[veins, :3].astype(np.int16) +
+                              np.array([34, 8, 8]), 0, 255).astype(np.uint8)
+    return tile
+
+
+@painter("soul_sand")
+def _p_soul_sand(rng):
+    tile = _mottle(_flat((84, 66, 54)), rng, 14)
+    for _ in range(3):  # hollow "faces" pressed into the sand
+        cx, cy = rng.integers(6, TILE - 6, size=2)
+        yy, xx = np.mgrid[0:TILE, 0:TILE]
+        d = np.sqrt((xx - cx) ** 2 + (yy - cy) ** 2)
+        tile[(d > 2) & (d < 4), :3] = (48, 36, 30)
+    return tile
+
+
+@painter("nether_bricks")
+def _p_nether_bricks(rng):
+    tile = _mottle(_flat((52, 26, 30)), rng, 10)
+    mortar = (30, 14, 16)
+    for row in (0, 8, 16, 24):
+        tile[row : row + 1, :, :3] = mortar
+    for row0, offset in ((1, 0), (9, 16), (17, 0), (25, 16)):
+        for col in (offset % TILE, (offset + 16) % TILE):
+            tile[row0 : row0 + 7, col, :3] = mortar
+    return tile
+
+
+@painter("chest_top")
+def _p_chest_top(rng):
+    tile = _p_planks(rng)
+    tile[0:3, :, :3] = (74, 52, 30)
+    tile[-3:, :, :3] = (74, 52, 30)
+    tile[:, 0:3, :3] = (74, 52, 30)
+    tile[:, -3:, :3] = (74, 52, 30)
+    tile[14:18, 14:18, :3] = (222, 200, 120)  # latch
+    return tile
+
+
+@painter("chest_side")
+def _p_chest_side(rng):
+    tile = _p_planks(rng)
+    tile[15:17, :, :3] = (60, 42, 24)      # lid seam
+    tile[13:20, 14:18, :3] = (222, 200, 120)  # lock plate
+    tile[0:3, :, :3] = (74, 52, 30)
+    tile[-3:, :, :3] = (74, 52, 30)
+    return tile
+
+
+@painter("cobweb")
+def _p_cobweb(rng):
+    tile = _flat((0, 0, 0), alpha=0)
+    c = (228, 232, 238, 210)
+    m = TILE // 2
+    for a in range(0, TILE, 4):  # radial + diagonal strands
+        tile[m, a] = c
+        tile[a, m] = c
+        if a < TILE:
+            tile[a, a] = c
+            tile[a, TILE - 1 - a] = c
+    for r in (6, 11):  # concentric rings (diamond)
+        for t in range(-r, r + 1):
+            for (px, py) in ((m + t, m + (r - abs(t))), (m + t, m - (r - abs(t)))):
+                if 0 <= px < TILE and 0 <= py < TILE:
+                    tile[py, px] = c
+    return tile
+
+
+@painter("end_stone")
+def _p_end_stone(rng):
+    return _bevel(_mottle(_flat((220, 224, 168)), rng, 12), 6)
+
+
+@painter("spawner")
+def _p_spawner(rng):
+    tile = _flat((0, 0, 0), alpha=0)
+    bar = (58, 66, 74, 255)
+    for a in range(0, TILE, 6):  # cage bars
+        tile[:, a] = bar
+        tile[a, :] = bar
+    tile[12:20, 12:20, :3] = (90, 40, 40)  # glimpse of the mob inside
+    tile[12:20, 12:20, 3] = 255
+    return tile
+
+
+@painter("nether_portal")
+def _p_nether_portal(rng):
+    tile = _flat((120, 40, 190))
+    swirl = _noise(rng, ((16, 1.0), (8, 0.7)))
+    tile = _add(tile, swirl * 60)
+    bright = swirl > 0.3
+    tile[bright, :3] = (200, 130, 240)
+    return tile
+
+
+@painter("glowshroom")
+def _p_glowshroom(rng):
+    tile = _flat((0, 0, 0), alpha=0)
+    for _ in range(10):
+        x, y = rng.integers(2, TILE - 2, size=2)
+        tile[y, x, :3] = (120, 220, 180)
+        tile[y, x, 3] = 255
+        if rng.random() < 0.5 and x + 1 < TILE:
+            tile[y, x + 1, :3] = (150, 240, 200)
+            tile[y, x + 1, 3] = 255
+    return tile
+
+
+def _recolor_log(rng, bark: tuple[int, int, int], knot: tuple[int, int, int]) -> np.ndarray:
+    tile = _flat(bark)
+    xx = np.arange(TILE, dtype=np.float32)[None, :]
+    yy = np.arange(TILE, dtype=np.float32)[:, None]
+    ridges = np.sin(xx * 1.15 + np.sin(yy * 0.35) * 1.8) * 12.0
+    tile = _add(tile, ridges)
+    tile = _mottle(tile, rng, 9, ((8, 1.0),))
+    for _ in range(4):
+        x, y = rng.integers(2, TILE - 2, size=2)
+        tile[y - 1 : y + 2, x - 1 : x + 2, :3] = knot
+    return tile
+
+
+@painter("spruce_log_side")
+def _p_spruce_log(rng):
+    return _recolor_log(rng, (76, 56, 34), (52, 38, 24))
+
+
+@painter("jungle_log_side")
+def _p_jungle_log(rng):
+    tile = _recolor_log(rng, (98, 76, 46), (70, 54, 32))
+    moss = _noise(rng, ((8, 1.0),)) > 0.45
+    tile[moss, :3] = ((tile[moss, :3].astype(np.int16) +
+                       np.array([60, 118, 48]) * 2) // 3).astype(np.uint8)
+    return tile
+
+
+@painter("acacia_log_side")
+def _p_acacia_log(rng):
+    return _recolor_log(rng, (112, 102, 94), (150, 88, 54))
+
+
+@painter("spruce_leaves")
+def _p_spruce_leaves(rng):
+    return _leaf_tile(rng, (38, 84, 40))
+
+
+@painter("jungle_leaves")
+def _p_jungle_leaves(rng):
+    return _leaf_tile(rng, (46, 132, 28))
+
+
+@painter("acacia_leaves")
+def _p_acacia_leaves(rng):
+    return _leaf_tile(rng, (104, 142, 44))
+
+
+@painter("fern")
+def _p_fern(rng):
+    tile = _flat((0, 0, 0), alpha=0)
+    for _ in range(8):  # arching fronds
+        x = int(rng.integers(4, TILE - 4))
+        height = int(rng.integers(10, 20))
+        bend = 1 if rng.random() < 0.5 else -1
+        color = np.clip(np.array([58, 112, 44]) + rng.integers(-18, 19), 0, 255)
+        for step in range(height):
+            px = x + bend * (step * step // 90)
+            py = TILE - 1 - step
+            if 0 <= px < TILE and 0 <= py < TILE:
+                tile[py, px, :3] = color
+                tile[py, px, 3] = 255
+                if step % 3 == 0 and 0 <= px + bend < TILE:
+                    tile[py, px + bend, :3] = color
+                    tile[py, px + bend, 3] = 255
+    return tile
+
+
 @painter("white")
 def _p_white(rng):
     return _flat((255, 255, 255))
@@ -644,6 +898,47 @@ def _p_heart_empty(rng):
     return _heart((60, 26, 26, 255))
 
 
+_DRUMSTICK_ROWS = [
+    "................",
+    "..........XX....",
+    ".........XMMX...",
+    "........XMMMX...",
+    ".......XMMMX....",
+    "......XMMMX.....",
+    ".....XMMMX......",
+    "....XMMMX.......",
+    "...XMMMXX.......",
+    "..XMMMXBB.......",
+    "..XMMXBBB.......",
+    "..XMMXBB........",
+    "...XXBB.........",
+    "................", "................", "................",
+]
+
+
+def _drumstick(meat: tuple[int, int, int, int]) -> np.ndarray:
+    return _mask_paint(_DRUMSTICK_ROWS, {
+        "X": (60, 34, 18, 255), "M": meat, "B": (232, 224, 208, 255),
+    })
+
+
+@painter("food_full")
+def _p_food_full(rng):
+    return _drumstick((150, 90, 52, 255))
+
+
+@painter("food_half")
+def _p_food_half(rng):
+    tile = _drumstick((150, 90, 52, 255))
+    tile[:, 16:] = _drumstick((70, 50, 40, 255))[:, 16:]
+    return tile
+
+
+@painter("food_empty")
+def _p_food_empty(rng):
+    return _drumstick((70, 50, 40, 255))
+
+
 @painter("bubble")
 def _p_bubble(rng):
     tile = _flat((0, 0, 0), alpha=0)
@@ -655,6 +950,107 @@ def _p_bubble(rng):
     return tile
 
 
+# -- item icons (tools, food) ---------------------------------------------------
+_TIER_COLOR = {
+    "wood": (140, 100, 58), "stone": (120, 120, 124),
+    "iron": (216, 216, 220), "diamond": (110, 232, 236),
+}
+_HANDLE = (112, 82, 48)
+
+
+def _register_tool(ttype: str, tier: str) -> None:
+    head = _TIER_COLOR[tier]
+
+    def paint(rng, ttype=ttype, head=head):
+        tile = _flat((0, 0, 0), alpha=0)
+        # Diagonal wooden handle from bottom-left to centre.
+        for i in range(4, TILE - 6):
+            x, y = i, TILE - 2 - i
+            if 0 <= x < TILE and 0 <= y < TILE:
+                tile[y, x, :3] = _HANDLE
+                tile[y, x, 3] = 255
+                tile[y, x + 1, :3] = _HANDLE
+                tile[y, x + 1, 3] = 255
+        hx, hy = TILE - 10, 6  # head region near top-right
+        if ttype == "pickaxe":
+            for dx in range(-6, 7):
+                yy = hy + abs(dx) // 3
+                _put(tile, hx + dx, yy, head)
+        elif ttype == "sword":
+            for dy in range(-1, 9):  # long blade back down the handle line
+                _put(tile, hx + dy, hy + dy, head)
+            _put(tile, hx - 2, hy + 2, head)
+            _put(tile, hx + 2, hy - 2, head)
+        elif ttype == "axe":
+            for dx in range(0, 5):
+                for dy in range(-3, 4):
+                    if abs(dy) <= 3 - dx // 2:
+                        _put(tile, hx + dx, hy + dy, head)
+        else:  # shovel
+            for dx in range(-2, 3):
+                for dy in range(-1, 4):
+                    _put(tile, hx + dx, hy + dy, head)
+        return tile
+
+    _PAINTERS[f"{ttype}_{tier}"] = paint
+
+
+def _put(tile, x, y, rgb):
+    if 0 <= x < TILE and 0 <= y < TILE:
+        tile[y, x, :3] = rgb
+        tile[y, x, 3] = 255
+
+
+for _tt in ("pickaxe", "axe", "shovel", "sword"):
+    for _tr in ("wood", "stone", "iron", "diamond"):
+        _register_tool(_tt, _tr)
+
+
+@painter("stick")
+def _p_stick(rng):
+    tile = _flat((0, 0, 0), alpha=0)
+    for i in range(6, TILE - 6):
+        _put(tile, i, TILE - 2 - i, (128, 94, 54))
+        _put(tile, i + 1, TILE - 2 - i, (150, 112, 66))
+    return tile
+
+
+@painter("apple")
+def _p_apple(rng):
+    tile = _flat((0, 0, 0), alpha=0)
+    yy, xx = np.mgrid[0:TILE, 0:TILE]
+    d = np.sqrt((xx - TILE / 2) ** 2 + (yy - TILE / 2 - 1) ** 2)
+    body = d < TILE * 0.32
+    tile[body] = (206, 44, 40, 255)
+    tile[body & (xx < TILE / 2)] = (226, 70, 60, 255)  # highlight
+    tile[TILE // 2 - 8 : TILE // 2 - 4, TILE // 2, :3] = (90, 62, 34)  # stem
+    tile[TILE // 2 - 8 : TILE // 2 - 4, TILE // 2, 3] = 255
+    return tile
+
+
+def _meat(rng, color, cooked):
+    tile = _flat((0, 0, 0), alpha=0)
+    yy, xx = np.mgrid[0:TILE, 0:TILE]
+    d = np.sqrt((xx - TILE / 2) ** 2 + (yy - TILE / 2) ** 2)
+    body = d < TILE * 0.34
+    tile[body] = (*color, 255)
+    bone = (yy > TILE * 0.6) & (np.abs(xx - TILE / 2) < 2)
+    tile[bone] = (236, 224, 208, 255)
+    if cooked:
+        tile[body & (d < TILE * 0.2)] = (120, 74, 44, 255)  # seared centre
+    return tile
+
+
+@painter("raw_meat")
+def _p_raw_meat(rng):
+    return _meat(rng, (208, 96, 104), cooked=False)
+
+
+@painter("cooked_meat")
+def _p_cooked_meat(rng):
+    return _meat(rng, (150, 96, 58), cooked=True)
+
+
 # -- build -----------------------------------------------------------------------
 def _error_tile() -> np.ndarray:
     tile = _flat((255, 0, 255))
@@ -663,19 +1059,116 @@ def _error_tile() -> np.ndarray:
     return tile
 
 
-def build_tiles(tile_names: list[str]) -> tuple[np.ndarray, dict[str, int]]:
-    """Paint all requested tiles. Returns (layers array (L,T,T,4), name->layer)."""
-    layers = np.zeros((len(tile_names), TILE, TILE, 4), dtype=np.uint8)
+# Per-tile material parameters for the PBR maps (metallic, roughness,
+# normal strength). Anything not listed uses the defaults.
+_MATERIALS: dict[str, tuple[float, float, float]] = {
+    "gold_ore": (0.55, 0.45, 1.4), "iron_ore": (0.4, 0.55, 1.4),
+    "diamond_ore": (0.35, 0.3, 1.4), "coal_ore": (0.05, 0.8, 1.4),
+    "copper_ore": (0.5, 0.5, 1.4), "lapis_ore": (0.2, 0.5, 1.4),
+    "redstone_ore": (0.1, 0.55, 1.4), "emerald_ore": (0.35, 0.35, 1.4),
+    "ice": (0.0, 0.15, 0.5), "packed_ice": (0.0, 0.25, 0.6),
+    "smooth_stone": (0.0, 0.6, 0.9), "glass": (0.0, 0.12, 0.2), "water": (0.0, 0.15, 0.4),
+    "stone": (0.0, 0.72, 1.5), "cobble": (0.0, 0.85, 1.7),
+    "mossy_cobble": (0.0, 0.9, 1.7), "stone_bricks": (0.0, 0.75, 1.7),
+    "bricks": (0.0, 0.8, 1.7), "snow": (0.0, 0.35, 0.6),
+    "leaves": (0.0, 0.95, 0.8), "birch_leaves": (0.0, 0.95, 0.8),
+    "glowstone": (0.1, 0.4, 1.2),
+}
+_DEFAULT_MATERIAL = (0.0, 0.8, 1.0)
+
+
+def _upscale_detail(tile: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """2x upscale + fine grain so 64px tiles gain real detail, not blur."""
+    big = np.kron(tile, np.ones((2, 2, 1), dtype=np.uint8))
+    opaque = big[:, :, 3] > 0
+    grain = rng.integers(-5, 6, (ATLAS_SIZE, ATLAS_SIZE), dtype=np.int16)
+    cells = np.kron(
+        rng.integers(-6, 7, (ATLAS_SIZE // 4, ATLAS_SIZE // 4), dtype=np.int16),
+        np.ones((4, 4), dtype=np.int16),
+    )
+    detail = (grain + cells)[:, :, None]
+    rgb = big[:, :, :3].astype(np.int16) + np.where(opaque[:, :, None], detail, 0)
+    big[:, :, :3] = np.clip(rgb, 0, 255).astype(np.uint8)
+    return big
+
+
+def build_tiles(
+    tile_names: list[str], pack_dir=None
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict[str, int]]:
+    """Paint all tiles + derive PBR maps.
+
+    Returns (albedo (L,S,S,4), normal (L,S,S,3), mrao (L,S,S,3), name->layer).
+    ``pack_dir``: optional external texture pack — PNGs named after tiles
+    override the procedural painters (missing ones fall back).
+    """
+    n = len(tile_names)
+    albedo = np.zeros((n, ATLAS_SIZE, ATLAS_SIZE, 4), dtype=np.uint8)
+    normal = np.zeros((n, ATLAS_SIZE, ATLAS_SIZE, 3), dtype=np.uint8)
+    mrao = np.zeros((n, ATLAS_SIZE, ATLAS_SIZE, 3), dtype=np.uint8)
     mapping: dict[str, int] = {}
+
     for i, name in enumerate(tile_names):
-        fn = _PAINTERS.get(name)
-        if fn is None:
-            _log.warning("No painter for tile '%s' — using error tile", name)
-            layers[i] = _error_tile()
+        rng = np.random.default_rng(zlib.crc32(name.encode("utf-8")))
+        packed = _load_pack_tile(pack_dir, name) if pack_dir else None
+        if packed is not None:
+            albedo[i] = packed
         else:
-            # Stable per-tile seed: same tile looks identical across runs.
-            rng = np.random.default_rng(zlib.crc32(name.encode("utf-8")))
-            layers[i] = fn(rng)
+            fn = _PAINTERS.get(name)
+            if fn is None:
+                _log.warning("No painter for tile '%s' — using error tile", name)
+                albedo[i] = np.kron(_error_tile(), np.ones((2, 2, 1), dtype=np.uint8))
+            else:
+                albedo[i] = _upscale_detail(fn(rng), rng)
         mapping[name] = i
-    _log.info("Painted %d procedural tiles (%dpx)", len(tile_names), TILE)
-    return layers, mapping
+
+        met, rough, strength = _MATERIALS.get(name, _DEFAULT_MATERIAL)
+        normal[i] = _normal_from_albedo(albedo[i], strength)
+        mrao[i] = _mrao_map(albedo[i], met, rough)
+
+    _log.info("Painted %d procedural tiles (%dpx + normal/MRAO maps)", n, ATLAS_SIZE)
+    return albedo, normal, mrao, mapping
+
+
+def _normal_from_albedo(tile: np.ndarray, strength: float) -> np.ndarray:
+    """Sobel height-from-luminance normal map (plan 3.2)."""
+    lum = tile[:, :, :3].astype(np.float32).mean(axis=2) / 255.0
+    dx = (np.roll(lum, -1, axis=1) - np.roll(lum, 1, axis=1)) * strength
+    dy = (np.roll(lum, -1, axis=0) - np.roll(lum, 1, axis=0)) * strength
+    nz = np.ones_like(lum)
+    length = np.sqrt(dx * dx + dy * dy + 1.0)
+    out = np.empty((*lum.shape, 3), dtype=np.uint8)
+    out[:, :, 0] = ((-dx / length) * 0.5 + 0.5) * 255
+    out[:, :, 1] = ((-dy / length) * 0.5 + 0.5) * 255
+    out[:, :, 2] = ((nz / length) * 0.5 + 0.5) * 255
+    return out
+
+
+def _mrao_map(tile: np.ndarray, metallic: float, roughness: float) -> np.ndarray:
+    """R=metallic, G=roughness, B=micro-AO baked from local darkness."""
+    lum = tile[:, :, :3].astype(np.float32).mean(axis=2) / 255.0
+    mean = lum.mean() or 1.0
+    micro_ao = np.clip(1.0 - np.clip((mean - lum) / max(mean, 1e-3), 0.0, 1.0) * 0.45, 0.0, 1.0)
+    out = np.empty((*lum.shape, 3), dtype=np.uint8)
+    out[:, :, 0] = int(metallic * 255)
+    out[:, :, 1] = int(roughness * 255)
+    out[:, :, 2] = (micro_ao * 255).astype(np.uint8)
+    return out
+
+
+def _load_pack_tile(pack_dir, name: str) -> np.ndarray | None:
+    """External texture pack override: <pack>/<tile>.png -> ATLAS_SIZE RGBA."""
+    from pathlib import Path
+
+    from PIL import Image
+
+    path = Path(pack_dir) / f"{name}.png"
+    if not path.exists():
+        return None
+    try:
+        img = Image.open(path).convert("RGBA").resize(
+            (ATLAS_SIZE, ATLAS_SIZE), Image.NEAREST
+        )
+        return np.asarray(img, dtype=np.uint8)
+    except Exception as exc:  # noqa: BLE001 - bad pack must not kill startup
+        _log.warning("Texture pack tile '%s' failed to load: %s", name, exc)
+        return None

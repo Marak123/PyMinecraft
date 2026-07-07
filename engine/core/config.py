@@ -36,6 +36,9 @@ class Settings:
     vsync: bool = True
     fov: float = 75.0
     render_distance: int = 8  # in chunks
+    shadows: bool = True
+    bloom: bool = True
+    texture_pack: str | None = None  # folder with <tile>.png overrides
     mouse_sensitivity: float = 0.09  # degrees per pixel
     day_length_seconds: float = 900.0
     seed: int | None = None  # None -> random on world creation

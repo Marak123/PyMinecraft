@@ -76,3 +76,9 @@ class Environment:
         sunset_strength = math.exp(-((elevation / 0.18) ** 2)) * 0.8
         self.horizon_color = _lerp(horizon, _SUNSET, sunset_strength)
         self.fog_color = self.horizon_color.copy()
+
+        # Colour grading for the tonemap pass: cool nights, warm sunsets.
+        cool = np.array([0.88, 0.94, 1.10])
+        grade = _lerp(cool, np.array([1.0, 1.0, 1.0]), day_t)
+        warm = np.array([1.08, 0.98, 0.90])
+        self.color_grade = _lerp(grade, warm, sunset_strength * day_t * 0.8)

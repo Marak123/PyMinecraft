@@ -23,11 +23,15 @@ from engine.world.noise import NoiseField, hash01
 
 _log = get_logger("worldgen")
 
-SEA_LEVEL = 48
-SNOW_LINE = 96
+SEA_LEVEL = 64
+SNOW_LINE = 150
 
 # Biome ids (internal to the generator).
-OCEAN, BEACH, DESERT, SNOWY, MOUNTAIN, FOREST, PLAINS = range(7)
+# Biome ids. The first 7 keep their historical values (save compatibility);
+# richer biomes are appended (plan 4.3, Whittaker temperature x humidity).
+(OCEAN, BEACH, DESERT, SNOWY, MOUNTAIN, FOREST, PLAINS,
+ SAVANNA, TAIGA, JUNGLE, SWAMP, BIRCH_FOREST, DEEP_OCEAN) = range(13)
+BIOME_COUNT = 13
 
 # Trees need context from neighbouring columns, so climate/height fields are
 # computed on a grid padded by the maximum canopy radius.
@@ -70,6 +74,8 @@ class WorldGenerator:
         self.seed = seed
         self.noise = NoiseField(seed)
         self.registry = registry
+        # Set by the game after construction to avoid an import cycle.
+        self.structures = None
 
         ids = registry.id_of
         self._stone = ids("stone")
@@ -97,26 +103,40 @@ class WorldGenerator:
         self._cobble = ids("cobblestone")
         self._mossy = ids("mossy_cobblestone")
         self._torch = ids("torch")
-        self._ores = (
-            (ids("coal_ore"), 0.60, 16, 100, 0.110),
-            (ids("iron_ore"), 0.615, 6, 70, 0.115),
-            (ids("gold_ore"), 0.655, 4, 34, 0.120),
-            (ids("diamond_ore"), 0.675, 2, 18, 0.130),
+        self._spruce_log = ids("spruce_log")
+        self._spruce_leaves = ids("spruce_leaves")
+        self._jungle_log = ids("jungle_log")
+        self._jungle_leaves = ids("jungle_leaves")
+        self._acacia_log = ids("acacia_log")
+        self._acacia_leaves = ids("acacia_leaves")
+        self._ice = ids("ice")
+        self._clay = ids("clay")
+        self._fern = ids("fern")
+        # Ore veins: (id, y_min, y_max, attempts_per_chunk, vein_size).
+        self._ore_veins = (
+            (ids("coal_ore"), 8, 192, 10, 13),
+            (ids("copper_ore"), 32, 120, 6, 10),
+            (ids("iron_ore"), 6, 128, 8, 7),
+            (ids("lapis_ore"), 6, 48, 3, 6),
+            (ids("redstone_ore"), 4, 40, 4, 7),
+            (ids("gold_ore"), 4, 40, 3, 5),
+            (ids("diamond_ore"), 4, 22, 2, 4),
+            (ids("emerald_ore"), 6, 40, 1, 2),
         )
 
-        # Per-biome surface blocks, indexed by biome id.
+        # Per-biome surface/filler blocks, indexed by biome id (BIOME_COUNT).
+        g, d, s, st = self._grass, self._dirt, self._sand, self._stone
+        sn, gr = self._snowy_grass, self._gravel
         self._top = np.array(
-            [self._sand, self._sand, self._sand, self._snowy_grass,
-             self._stone, self._grass, self._grass],
-            dtype=np.uint8,
+            [s, s, s, sn, st, g, g,  g, sn, g, g, g, gr], dtype=np.uint8,
         )
         self._filler = np.array(
-            [self._sand, self._sand, self._sand, self._dirt,
-             self._stone, self._dirt, self._dirt],
-            dtype=np.uint8,
+            [s, s, s, d, st, d, d,  d, d, d, d, d, gr], dtype=np.uint8,
         )
+        # Tree spawn chance per biome (0 = no trees).
         self._tree_chance = np.array(
-            [0.0, 0.0, 0.0, 0.018, 0.0, 0.055, 0.006], dtype=np.float64
+            [0.0, 0.0, 0.0, 0.02, 0.004, 0.06, 0.006,
+             0.006, 0.05, 0.075, 0.03, 0.05, 0.0], dtype=np.float64,
         )
 
     # -- climate & height fields ----------------------------------------------
@@ -128,15 +148,25 @@ class WorldGenerator:
         cz = wz - warp
 
         continents = n.fbm2(cx * 0.0016, cz * 0.0016, octaves=4)
-        hills = n.fbm2(wx * 0.010 + 130.0, wz * 0.010 + 130.0, octaves=4) * 7.0
+        hills = n.fbm2(wx * 0.010 + 130.0, wz * 0.010 + 130.0, octaves=4) * 9.0
 
         mountain_region = _smoothstep(
             0.18, 0.55, n.fbm2(wx * 0.0009 + 77.0, wz * 0.0009 + 77.0, octaves=3)
         )
         ridges = n.ridged2(wx * 0.006 + 900.0, wz * 0.006 + 900.0, octaves=4) ** 2
 
-        height = 46.0 + continents * 26.0 + hills + mountain_region * ridges * 58.0
-        return np.clip(height, 6, CHUNK_Y - 6).astype(np.int32)
+        # 256-tall world: peaks push past y=200 in mountain regions.
+        height = 61.0 + continents * 32.0 + hills + mountain_region * ridges * 130.0
+
+        # Rivers: thin bands where a dedicated noise crosses zero carve
+        # sea-level channels through any terrain below the high mountains.
+        river = np.abs(n.fbm2(wx * 0.0031 + 3300.0, wz * 0.0031 + 3300.0, octaves=3))
+        river_depth = (1.0 - _smoothstep(0.0, 0.045, river)) * 9.0
+        carvable = height < 118.0
+        riverbed = np.minimum(height, float(SEA_LEVEL) - 1.0 - river_depth * 0.5)
+        height = np.where(carvable & (river_depth > 0.5), riverbed, height)
+
+        return np.clip(height, 6, CHUNK_Y - 40).astype(np.int32)
 
     def _climate(
         self, wx: np.ndarray, wz: np.ndarray, height: np.ndarray
@@ -150,15 +180,28 @@ class WorldGenerator:
     def _biomes(
         self, height: np.ndarray, temp: np.ndarray, hum: np.ndarray
     ) -> np.ndarray:
+        # Whittaker-style: water depth first, then a temperature x humidity
+        # grid for land (plan 4.3).
         conditions = [
+            height < 34,
             height < SEA_LEVEL - 1,
             height <= SEA_LEVEL + 1,
-            height > 86,
-            (temp > 0.62) & (hum < 0.45),
-            temp < 0.30,
-            hum > 0.52,
+            height > 165,
+            # -- hot --
+            (temp > 0.66) & (hum < 0.32),   # desert
+            (temp > 0.62) & (hum < 0.55),   # savanna
+            (temp > 0.60) & (hum >= 0.55),  # jungle
+            # -- cold --
+            (temp < 0.28),                  # snowy tundra
+            (temp < 0.42) & (hum > 0.40),   # taiga
+            # -- temperate --
+            (hum > 0.66),                   # swamp
+            (hum > 0.50) & (temp > 0.48),   # forest
+            (hum > 0.44),                   # birch forest
         ]
-        choices = [OCEAN, BEACH, MOUNTAIN, DESERT, SNOWY, FOREST]
+        choices = [DEEP_OCEAN, OCEAN, BEACH, MOUNTAIN,
+                   DESERT, SAVANNA, JUNGLE, SNOWY, TAIGA,
+                   SWAMP, FOREST, BIRCH_FOREST]
         return np.select(conditions, choices, default=PLAINS).astype(np.uint8)
 
     def find_spawn(self, search_radius: int = 512, spacing: int = 8) -> tuple[int, int]:
@@ -175,8 +218,8 @@ class WorldGenerator:
 
         good = (
             (h >= SEA_LEVEL + 2)
-            & (h <= 80)
-            & np.isin(biome, (PLAINS, FOREST, SNOWY))
+            & (h <= 96)
+            & np.isin(biome, (PLAINS, FOREST, BIRCH_FOREST, SAVANNA, TAIGA))
         )
         if not good.any():
             _log.warning("No comfortable spawn found within %d blocks", search_radius)
@@ -208,6 +251,8 @@ class WorldGenerator:
         self._fill_water(blocks, h)
         self._plant_trees(blocks, cx, cz, h_e, biome_e)
         self._place_ruins(blocks, cx, cz, h_e, biome_e)
+        if self.structures is not None:
+            self.structures.place(blocks, cx, cz, h)
         self._scatter_plants(blocks, cx, cz, h, biome)
         blocks[:, :, 0] = self._bedrock
         return blocks
@@ -220,12 +265,15 @@ class WorldGenerator:
 
         blocks[y <= h3] = self._stone
 
-        # Ocean floor material varies with depth: shallow sand, deep gravel.
+        # Ocean/river floor material varies with depth.
         top = self._top[biome].copy()
         filler = self._filler[biome].copy()
-        deep_ocean = (biome == OCEAN) & (h < 40)
-        top[deep_ocean] = self._gravel
-        filler[deep_ocean] = self._gravel
+        deep = np.isin(biome, (OCEAN, DEEP_OCEAN)) & (h < 52)
+        top[deep] = self._gravel
+        filler[deep] = self._gravel
+        # Clay patches on shallow submerged floors and swamp beds.
+        clay = ((biome == SWAMP) | (np.isin(biome, (OCEAN, DEEP_OCEAN)) & (h > 48))) & (h < SEA_LEVEL)
+        top[clay] = self._clay
         # High peaks get a snow cap regardless of biome table.
         snow_cap = (biome == MOUNTAIN) & (h >= SNOW_LINE)
         top[snow_cap] = self._snow_block
@@ -242,6 +290,10 @@ class WorldGenerator:
                 sel = desert & (yy > 1)
                 blocks[ix[sel], iz[sel], yy[sel]] = self._sandstone
         blocks[ix, iz, h] = top
+        # Frozen lakes: an ice skin over cold biome water at sea level.
+        frozen = np.isin(biome, (SNOWY, TAIGA)) & (h == SEA_LEVEL - 1)
+        if frozen.any():
+            blocks[ix[frozen], iz[frozen], SEA_LEVEL] = self._ice
         return blocks
 
     def _half_res_coords(
@@ -272,15 +324,15 @@ class WorldGenerator:
             n.fbm3(x3 * 0.013 + 800.0, y3 * 0.021 + 800.0, z3 * 0.013 + 800.0, octaves=2)
         )
         y_idx = np.arange(CHUNK_Y, dtype=np.int32)[None, None, :]
-        caverns = (cheese > 0.46) & (y_idx < 40)
+        caverns = (cheese > 0.46) & (y_idx < 52)
 
         # Keep a >=5 block roof so caves never breach the surface (and never
         # puncture the ocean floor — no fluid sim yet to handle the flood).
         depth_ok = (y_idx >= 4) & (y_idx <= (h[:, :, None] - 5))
-        carve = (spaghetti | caverns) & depth_ok
+        carve = (spaghetti | caverns) & self._ravine_mask(cx, cz, h) & depth_ok
 
         blocks[carve] = AIR
-        blocks[carve & (y_idx <= 10)] = self._lava
+        blocks[carve & (y_idx <= 12)] = self._lava
 
         # Natural glowstone pockets on cavern ceilings — landmarks that show
         # off block lighting deep underground.
@@ -290,23 +342,50 @@ class WorldGenerator:
             carved_below
             & (blocks == self._stone)
             & (cheese > 0.60)
-            & (y_idx < 36)
+            & (y_idx < 48)
         )
         blocks[glow] = self._glowstone
 
-    def _place_ores(self, blocks: np.ndarray, cx: int, cz: int) -> None:
-        n = self.noise
-        x3, z3, y3 = self._half_res_coords(cx, cz)
-        y_idx = np.arange(CHUNK_Y, dtype=np.int32)[None, None, :]
-        stone_mask = blocks == self._stone
+    def _ravine_mask(self, cx: int, cz: int, h: np.ndarray) -> np.ndarray:
+        """Full-height carve mask; False inside a rare deep ravine slot.
 
-        for i, (ore_id, threshold, y_min, y_max, freq) in enumerate(self._ores):
-            offset = 1300.0 + i * 137.3
-            field = _upsample2(
-                n.perlin3(x3 * freq + offset, y3 * freq + offset, z3 * freq + offset)
-            )
-            vein = (field > threshold) & (y_idx >= y_min) & (y_idx <= y_max) & stone_mask
-            blocks[vein] = ore_id
+        Ravines are thin vertical canyons: a stretched 2D noise near zero
+        cuts a slit from bedrock up to just under the surface.
+        """
+        n = self.noise
+        wx = np.arange(cx * CHUNK_X, (cx + 1) * CHUNK_X, dtype=np.float32)[:, None]
+        wz = np.arange(cz * CHUNK_Z, (cz + 1) * CHUNK_Z, dtype=np.float32)[None, :]
+        # Stretch Z so the canyon runs as a long crack, not a dot.
+        field = np.abs(n.fbm2(wx * 0.010 + 6100.0, wz * 0.0022 + 6100.0, octaves=2))
+        slit = field < 0.014  # (X, Z)
+        y_idx = np.arange(CHUNK_Y, dtype=np.int32)[None, None, :]
+        in_band = (y_idx >= 10) & (y_idx <= (h[:, :, None] - 4))
+        return ~(slit[:, :, None] & in_band)
+
+    def _place_ores(self, blocks: np.ndarray, cx: int, cz: int) -> None:
+        """Vein-based ores: scatter centres, grow an organic blob at each
+        (plan 4.6). Deterministic per chunk so it never depends on order."""
+        stone_mask = blocks == self._stone
+        rng = np.random.default_rng(
+            ((cx * 341873128) ^ (cz * 132897987) ^ self.seed) & 0x7FFFFFFF
+        )
+        offsets = np.array(
+            [(0, 0, 0), (1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0),
+             (0, 0, 1), (0, 0, -1), (1, 1, 0), (-1, 0, 1), (1, 0, -1),
+             (0, 1, 1), (0, -1, -1), (1, -1, 0), (-1, 1, 0)],
+            dtype=np.int32,
+        )
+        for ore_id, y_min, y_max, attempts, vein_size in self._ore_veins:
+            for _ in range(attempts):
+                lx = int(rng.integers(0, CHUNK_X))
+                lz = int(rng.integers(0, CHUNK_Z))
+                ly = int(rng.integers(y_min, y_max))
+                grow = offsets[: min(vein_size, len(offsets))]
+                px = np.clip(lx + grow[:, 0], 0, CHUNK_X - 1)
+                pz = np.clip(lz + grow[:, 1] * 0 + grow[:, 2], 0, CHUNK_Z - 1)
+                py = np.clip(ly + grow[:, 1], 1, CHUNK_Y - 1)
+                place = stone_mask[px, pz, py]
+                blocks[px[place], pz[place], py[place]] = ore_id
 
     def _fill_water(self, blocks: np.ndarray, h: np.ndarray) -> None:
         y = np.arange(CHUNK_Y, dtype=np.int32)[None, None, :]
@@ -336,13 +415,49 @@ class WorldGenerator:
             base_x = int(tx) - _PAD  # chunk-local column of the trunk
             base_z = int(tz) - _PAD
             ground = int(h_e[tx, tz])
+            biome = int(biome_e[tx, tz])
             trunk_h = 4 + int(trunk_roll[tx, tz] * 3.0)
-            # Birches mingle into forests; other biomes grow oaks only.
-            if biome_e[tx, tz] == FOREST and variant_roll[tx, tz] < 0.30:
+            variant = variant_roll[tx, tz]
+
+            if biome == TAIGA:
+                self._write_conifer(blocks, base_x, base_z, ground,
+                                    5 + int(trunk_roll[tx, tz] * 4.0),
+                                    self._spruce_log, self._spruce_leaves)
+                continue
+            if biome == JUNGLE:
+                log_id, leaves_id = self._jungle_log, self._jungle_leaves
+                trunk_h = 6 + int(trunk_roll[tx, tz] * 4.0)
+            elif biome == SAVANNA:
+                log_id, leaves_id = self._acacia_log, self._acacia_leaves
+            elif biome == BIRCH_FOREST or (biome == FOREST and variant < 0.30):
                 log_id, leaves_id = self._birch_log, self._birch_leaves
             else:
                 log_id, leaves_id = self._log, self._leaves
             self._write_tree(blocks, base_x, base_z, ground, trunk_h, log_id, leaves_id)
+
+    def _write_conifer(
+        self, blocks: np.ndarray, bx: int, bz: int, ground: int,
+        trunk_h: int, log_id: int, leaves_id: int,
+    ) -> None:
+        """Tapered spruce: leaf rings that shrink towards a pointed top."""
+        def put(px, pz, py, bid, only_air):
+            if 0 <= px < CHUNK_X and 0 <= pz < CHUNK_Z and 0 < py < CHUNK_Y - 1:
+                if not only_air or blocks[px, pz, py] == AIR:
+                    blocks[px, pz, py] = bid
+
+        put(bx, bz, ground, self._dirt, False)
+        for dy in range(1, trunk_h + 1):
+            put(bx, bz, ground + dy, log_id, False)
+        radius = 2
+        for dy in range(2, trunk_h + 1):
+            r = radius if (trunk_h - dy) % 2 == 1 else max(1, radius - 1)
+            if dy >= trunk_h - 1:
+                r = 1
+            for dx in range(-r, r + 1):
+                for dz in range(-r, r + 1):
+                    if abs(dx) + abs(dz) <= r:
+                        put(bx + dx, bz + dz, ground + dy, leaves_id, True)
+        put(bx, bz, ground + trunk_h + 1, leaves_id, True)
 
     def _write_tree(
         self,

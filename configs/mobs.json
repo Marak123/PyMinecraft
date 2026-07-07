@@ -1,0 +1,238 @@
+{
+  "comment": "Mob definitions. body: quadruped | biped | spider. hostile mobs use behavior chase/explode/ranged; passive wander. colors are RGB 0-1.",
+  "mobs": {
+    "pig": {
+      "health": 10,
+      "half_width": 0.35,
+      "height": 0.85,
+      "speed": 1.2,
+      "hostile": false,
+      "body": "quadruped",
+      "spawn": [
+        "plains",
+        "forest",
+        "savanna"
+      ],
+      "color": [
+        0.93,
+        0.62,
+        0.65
+      ],
+      "accent": [
+        0.78,
+        0.48,
+        0.52
+      ],
+      "drops": [
+        [
+          "raw_meat",
+          1,
+          2
+        ]
+      ]
+    },
+    "cow": {
+      "health": 10,
+      "half_width": 0.4,
+      "height": 1.3,
+      "speed": 1.1,
+      "hostile": false,
+      "body": "quadruped",
+      "spawn": [
+        "plains",
+        "forest"
+      ],
+      "color": [
+        0.32,
+        0.24,
+        0.18
+      ],
+      "accent": [
+        0.9,
+        0.9,
+        0.86
+      ],
+      "drops": [
+        [
+          "raw_meat",
+          1,
+          2
+        ]
+      ]
+    },
+    "sheep": {
+      "health": 8,
+      "half_width": 0.4,
+      "height": 1.2,
+      "speed": 1.1,
+      "hostile": false,
+      "body": "quadruped",
+      "spawn": [
+        "plains",
+        "taiga"
+      ],
+      "color": [
+        0.92,
+        0.92,
+        0.9
+      ],
+      "accent": [
+        0.85,
+        0.72,
+        0.62
+      ],
+      "drops": [
+        [
+          "raw_meat",
+          1,
+          2
+        ]
+      ]
+    },
+    "chicken": {
+      "health": 4,
+      "half_width": 0.2,
+      "height": 0.6,
+      "speed": 1.0,
+      "hostile": false,
+      "body": "quadruped",
+      "spawn": [
+        "plains",
+        "forest"
+      ],
+      "color": [
+        0.95,
+        0.95,
+        0.95
+      ],
+      "accent": [
+        0.9,
+        0.2,
+        0.15
+      ],
+      "drops": [
+        [
+          "raw_meat",
+          1,
+          2
+        ]
+      ]
+    },
+    "zombie": {
+      "health": 20,
+      "half_width": 0.3,
+      "height": 1.8,
+      "speed": 1.9,
+      "hostile": true,
+      "body": "biped",
+      "behavior": "chase",
+      "spawn": [
+        "dark"
+      ],
+      "color": [
+        0.32,
+        0.55,
+        0.34
+      ],
+      "accent": [
+        0.24,
+        0.4,
+        0.62
+      ],
+      "drops": [
+        [
+          "stick",
+          0,
+          1
+        ]
+      ]
+    },
+    "skeleton": {
+      "health": 20,
+      "half_width": 0.3,
+      "height": 1.8,
+      "speed": 2.1,
+      "hostile": true,
+      "body": "biped",
+      "behavior": "ranged",
+      "spawn": [
+        "dark"
+      ],
+      "color": [
+        0.86,
+        0.86,
+        0.82
+      ],
+      "accent": [
+        0.7,
+        0.7,
+        0.66
+      ],
+      "drops": [
+        [
+          "stick",
+          0,
+          1
+        ]
+      ]
+    },
+    "creeper": {
+      "health": 20,
+      "half_width": 0.3,
+      "height": 1.7,
+      "speed": 2.0,
+      "hostile": true,
+      "body": "biped",
+      "behavior": "explode",
+      "spawn": [
+        "dark"
+      ],
+      "color": [
+        0.35,
+        0.72,
+        0.36
+      ],
+      "accent": [
+        0.24,
+        0.5,
+        0.25
+      ],
+      "drops": [
+        [
+          "stick",
+          0,
+          1
+        ]
+      ]
+    },
+    "spider": {
+      "health": 16,
+      "half_width": 0.6,
+      "height": 0.7,
+      "speed": 2.4,
+      "hostile": true,
+      "body": "spider",
+      "behavior": "chase",
+      "spawn": [
+        "dark"
+      ],
+      "color": [
+        0.2,
+        0.18,
+        0.2
+      ],
+      "accent": [
+        0.6,
+        0.15,
+        0.15
+      ],
+      "drops": [
+        [
+          "stick",
+          0,
+          1
+        ]
+      ]
+    }
+  }
+}

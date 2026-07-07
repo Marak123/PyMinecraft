@@ -92,10 +92,11 @@ class InventoryScreen(_UiBase):
         self.inventory = inventory
         self.book = book
         self.swap_source: int | None = None
-        # All placeable blocks for the creative picker (skip air/bedrock).
+        # Everything selectable in the creative picker: placeable blocks plus
+        # item-only entries (tools, food) that have an icon.
         self.placeable = [
             d.id for d in registry.defs
-            if d.render != RENDER_NONE and d.name != "bedrock"
+            if d.name not in ("air", "bedrock") and d.textures
         ]
 
     def _slot_icon(self, block_id: int) -> int:
